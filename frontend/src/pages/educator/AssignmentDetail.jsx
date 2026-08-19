@@ -4,6 +4,7 @@ import { api } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useConfirm } from '../../hooks/useConfirm.js';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
+import { AttachmentViewer } from '../../components/AttachmentViewer.jsx';
 
 export function AssignmentDetail() {
   const { id } = useParams();
@@ -90,7 +91,8 @@ export function AssignmentDetail() {
           </div>
         </div>
         <p className="text-sm text-gray-500 mb-2">Due {new Date(assignment.dueDate).toLocaleDateString()}</p>
-        <p className="text-sm text-gray-700">{assignment.description}</p>
+        <p className="text-sm text-gray-700 mb-3">{assignment.description}</p>
+        <AttachmentViewer url={assignment.attachmentUrl} />
         {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
       </div>
 

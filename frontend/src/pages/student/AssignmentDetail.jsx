@@ -4,6 +4,7 @@ import { api } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useConfirm } from '../../hooks/useConfirm.js';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
+import { AttachmentViewer } from '../../components/AttachmentViewer.jsx';
 
 const STATUS_LABEL = {
   not_submitted: 'Not submitted',
@@ -75,11 +76,7 @@ export function AssignmentDetail() {
       <h1 className="text-lg font-semibold text-gray-900">{assignment.title}</h1>
       <p className="text-sm text-gray-500 mb-1">Due {new Date(assignment.dueDate).toLocaleDateString()}</p>
       <p className="text-sm text-gray-700 mb-4">{assignment.description}</p>
-      {assignment.attachmentUrl && (
-        <a href={assignment.attachmentUrl} target="_blank" rel="noreferrer" className="text-sm text-gray-900 underline">
-          Download attachment
-        </a>
-      )}
+      <AttachmentViewer url={assignment.attachmentUrl} />
 
       {assignment.onedriveLink && submission?.status === 'not_submitted' && (
         <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
