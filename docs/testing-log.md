@@ -456,3 +456,50 @@ curl http://localhost:5050/api/v1/users/me -H "Authorization: Bearer $SAME_TOKEN
 **Result:** PASS — still `200`, token remains valid until its natural 1h expiry. Matches `docs/security.md`'s explicit statement: "a stolen token remains valid for up to 1 hour after logout."
 
 **Notes:** Stack torn down (`docker compose down`) after verification. **Phase 2 (Auth end-to-end) is now functionally complete for the student role**: register → verify → login → protected route → logout, all tested. Educator role extension is Task 16.
+
+---
+
+## 2026-08-19 — Extend register/login to educator role
+
+**Context:** Phase 2, Task 16. Only the route-level zod schema (`backend/src/routes/auth.js`) restricted registration to `student` — `authService.js`, the DB CHECK constraint, and `loginUser()` were already role-agnostic. One-line change: `z.enum(['student'])` → `z.enum(['student', 'educator'])`.
+
+**Test 1 — register as educator:**
+**Result:** PASS — `201 {"userId": "..."}`.
+
+**Test 2 — invalid role still rejected (e.g. `admin`):**
+**Result:** PASS — `400 VALIDATION_ERROR`, confirms the enum still gates out anything beyond the two real roles.
+
+**Test 3 — verify + login as educator, full flow:**
+**Result:** PASS — verify `200 {"verified":true}`; login `200` with `user.role: "educator"` and the JWT payload's `role` claim correctly set to `"educator"`.
+
+**Test 4 — `requireRole` actually discriminates between roles (direct unit-style check, since no real educator-only route exists yet):**
+```js
+const middleware = requireRole('educator');
+middleware({ user: { role: 'student' } }, res, next);   // expect rejected
+middleware({ user: { role: 'educator' } }, res, next);  // expect passed through
+```
+**Result:** PASS — student request rejected with `403 FORBIDDEN`, educator request called `next()`. Confirms `requireRole`'s actual behavior rather than leaving it as an untested assumption, even before a live route consumes it.
+
+**Notes:** Stack torn down (`docker compose down`) after verification. **Phase 2 (Auth end-to-end) is now fully complete for both roles.**
+
+---
+
+## 2026-08-19 — Task 17: consolidated end-to-end auth flow pass (both roles)
+
+**Context:** User requested one consolidated regression pass in addition to the incremental per-task tests, running the entire chain back-to-back for both roles against a fresh stack: register → login-before-verify (expect rejection) → verify → login → protected route → logout.
+
+**Test — full chain, student role (`e2e-student@test.com`):**
+1. Register → `201`
+2. Login before verify → `403 EMAIL_NOT_VERIFIED`
+3. Verify → `200 {"verified":true}`
+4. Login → `200`, token + `user.role: "student"`
+5. `GET /users/me` with token → `200`, correct id/name/email/role
+6. Logout → `200 {}`
+
+**Result:** PASS — every step correct, no interference from prior test data in the (persisted) DB volume.
+
+**Test — full chain, educator role (`e2e-educator@test.com`), same sequence:**
+
+**Result:** PASS — identical to the student flow, with `role: "educator"` correctly threaded through login response, JWT payload, and `/users/me`.
+
+**Notes:** Both flows run against the same backend instance in one script with no server restart between them, confirming no cross-role state leakage (e.g., rate limiter, JWT secret, DB pool all behaved correctly under back-to-back different-role traffic). Backend confirmed still healthy (`docker compose ps`) after the full run. Stack torn down afterward. **Phase 2 (Auth end-to-end) is fully complete and regression-tested for both roles.**
