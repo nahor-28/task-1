@@ -5,6 +5,7 @@ import authRouter from './routes/auth.js';
 import usersRouter from './routes/users.js';
 import assignmentsRouter from './routes/assignments.js';
 import groupsRouter from './routes/groups.js';
+import submissionsRouter from './routes/submissions.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -20,6 +21,7 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/users', usersRouter);
 app.use('/api/v1/assignments', assignmentsRouter);
 app.use('/api/v1/groups', groupsRouter);
+app.use('/api/v1/submissions', submissionsRouter);
 
 app.use((err, req, res, next) => {
   console.error(err);

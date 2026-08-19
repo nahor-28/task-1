@@ -13,3 +13,4 @@ function makeValidator(field) {
 
 export const validate = makeValidator('body');
 export const validateParams = makeValidator('params');
+export const validateQuery = makeValidator('query');
