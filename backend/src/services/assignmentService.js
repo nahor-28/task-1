@@ -11,10 +11,17 @@ export async function createAssignment({ title, description, dueDate, onedriveLi
 }
 
 export async function listAssignments(user) {
-  // Students see nothing until assignment targeting exists (Phase 5) - no
-  // way yet to know which assignments are targeted at them.
   if (user.role === 'student') {
-    return [];
+    const { rows } = await pool.query(
+      `SELECT DISTINCT a.id, a.title, a.description, a.due_date, a.onedrive_link, a.attachment_url, a.created_by, a.created_at
+       FROM assignments a
+       JOIN assignment_targets at ON at.assignment_id = a.id
+       LEFT JOIN group_members gm ON gm.group_id = at.group_id AND gm.student_id = $1
+       WHERE at.student_id = $1 OR gm.student_id = $1
+       ORDER BY a.created_at DESC`,
+      [user.id],
+    );
+    return rows;
   }
 
   const { rows } = await pool.query(
@@ -94,4 +101,56 @@ export async function setAttachment(id, requesterId, attachmentUrl) {
 
   await pool.query('UPDATE assignments SET attachment_url = $1 WHERE id = $2', [attachmentUrl, id]);
   return { attachmentUrl };
+}
+
+export async function assignTarget(assignmentId, requesterId, { targetType, targetId }) {
+  const owned = await getOwnedAssignment(assignmentId, requesterId);
+  if (owned.error) return owned;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (targetType === 'student') {
+      const { rows } = await client.query('SELECT role FROM users WHERE id = $1', [targetId]);
+      if (!rows[0] || rows[0].role !== 'student') {
+        await client.query('ROLLBACK');
+        return { error: 'STUDENT_NOT_FOUND' };
+      }
+
+      const { rows: target } = await client.query(
+        'INSERT INTO assignment_targets (assignment_id, student_id) VALUES ($1, $2) RETURNING id',
+        [assignmentId, targetId],
+      );
+      await client.query(
+        'INSERT INTO submissions (assignment_id, student_id) VALUES ($1, $2)',
+        [assignmentId, targetId],
+      );
+      await client.query('COMMIT');
+      return { targetId: target[0].id };
+    }
+
+    const { rows: group } = await client.query('SELECT id FROM groups WHERE id = $1', [targetId]);
+    if (!group[0]) {
+      await client.query('ROLLBACK');
+      return { error: 'GROUP_NOT_FOUND' };
+    }
+
+    const { rows: target } = await client.query(
+      'INSERT INTO assignment_targets (assignment_id, group_id) VALUES ($1, $2) RETURNING id',
+      [assignmentId, targetId],
+    );
+    await client.query(
+      `INSERT INTO submissions (assignment_id, student_id)
+       SELECT $1, student_id FROM group_members WHERE group_id = $2`,
+      [assignmentId, targetId],
+    );
+    await client.query('COMMIT');
+    return { targetId: target[0].id };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }

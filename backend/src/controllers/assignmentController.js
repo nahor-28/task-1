@@ -6,12 +6,17 @@ import {
   updateAssignment,
   deleteAssignment,
   setAttachment,
+  assignTarget,
 } from '../services/assignmentService.js';
+
+const PG_UNIQUE_VIOLATION = '23505';
 
 const ERROR_RESPONSES = {
   NOT_FOUND: [404, 'Assignment not found'],
   FORBIDDEN: [403, 'You do not own this assignment'],
   HAS_SUBMISSIONS: [409, 'Cannot delete an assignment with existing submissions - archive instead'],
+  STUDENT_NOT_FOUND: [404, 'Student not found'],
+  GROUP_NOT_FOUND: [404, 'Group not found'],
 };
 
 function sendAssignmentError(res, code) {
@@ -91,6 +96,23 @@ export async function attachment(req, res, next) {
 
     res.json({ attachmentUrl: result.attachmentUrl });
   } catch (err) {
+    next(err);
+  }
+}
+
+export async function assign(req, res, next) {
+  try {
+    const result = await assignTarget(req.params.id, req.user.id, req.body);
+    if (result.error) {
+      return sendAssignmentError(res, result.error);
+    }
+    res.status(201).json({ targetId: result.targetId });
+  } catch (err) {
+    if (err.code === PG_UNIQUE_VIOLATION) {
+      return res.status(409).json({
+        error: { message: 'Target already assigned to this assignment', code: 'ALREADY_ASSIGNED' },
+      });
+    }
     next(err);
   }
 }

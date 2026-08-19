@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { validate, validateParams } from '../middleware/validate.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
-import { create, list, detail, update, remove, attachment } from '../controllers/assignmentController.js';
+import { create, list, detail, update, remove, attachment, assign } from '../controllers/assignmentController.js';
 
 function handleUpload(req, res, next) {
   upload.single('file')(req, res, (err) => {
@@ -37,6 +37,11 @@ const idParamSchema = z.object({
   id: z.uuid(),
 });
 
+const assignSchema = z.object({
+  targetType: z.enum(['student', 'group']),
+  targetId: z.uuid(),
+});
+
 router.post('/', requireAuth, requireRole('educator'), validate(createSchema), create);
 router.get('/', requireAuth, list);
 router.get('/:id', requireAuth, validateParams(idParamSchema), detail);
@@ -62,6 +67,14 @@ router.post(
   validateParams(idParamSchema),
   handleUpload,
   attachment,
+);
+router.post(
+  '/:id/assign',
+  requireAuth,
+  requireRole('educator'),
+  validateParams(idParamSchema),
+  validate(assignSchema),
+  assign,
 );
 
 export default router;
