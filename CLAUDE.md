@@ -16,6 +16,9 @@ Before defaulting on any coding-standard-level choice — module system (CommonJ
 
 **Decided:**
 - Module system: **ESM** (`import`/`export`, `"type": "module"` in `package.json`), not CommonJS.
+- Frontend component file naming: **PascalCase.jsx** (matches component/export name).
+- Frontend async pattern: **async/await** (consistent with backend controllers/services).
+- Frontend tooling: Vite + React Router v7 + Tailwind v4 (`@tailwindcss/vite` plugin) + native `fetch` (no axios) + React Context for auth state (no Redux/Zustand).
 
 ## Stack
 - Frontend: React.js + Tailwind CSS
