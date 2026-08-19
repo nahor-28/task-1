@@ -832,3 +832,14 @@ SELECT count(*) FROM submissions WHERE assignment_id = '<id>';
 **Bug caught and fixed mid-test:** `groupSummaries` rows initially returned the raw `completion_rate` column (snake_case) while every other field in the same `/reports/dashboard` response was camelCase (`totalAssignments`, `avgCompletionRate`) — an inconsistent response shape. Fixed by mapping the row to `{ id, name, completionRate }` in `reportService.js` before returning; re-verified test 10 after the fix (`nodemon` picked it up live, no rebuild).
 
 **Notes:** Stack torn down (`docker compose down`) after verification. **Phase 7 (dashboards) is now fully tested — all 7 phases of the build order are complete.**
+
+---
+
+## 2026-08-19 — Bug fix: `GET /submissions/mine` missing `id`
+
+**Context:** Discovered while building the Postman collection (docs/postman.md task) — walking the student flow end-to-end as a real client would, not via direct `psql` lookups like the curl tests used. `PATCH /submissions/:id/submit` and `/confirm` both require the submission's `id` in the path, but `GET /submissions/mine` never returned it — a student had no way to discover their own submission's `id` through the documented API at all (Phase 6's curl tests only worked because I pulled the id via `psql`, masking the gap). One-line fix: added `id` to the `SELECT` in `getMine()` (`submissionService.js`). Updated `docs/api.md`'s `/submissions/mine` row to include `id` in the response shape.
+
+**Test — `GET /submissions/mine?assignmentId=` after the fix:**
+**Result:** PASS — `200 {"id": "...", "status": "confirmed", "submitted_at": "...", "confirmed_at": "..."}`. `nodemon` picked up the change live.
+
+**Notes:** Stack torn down (`docker compose down`) after verification.
