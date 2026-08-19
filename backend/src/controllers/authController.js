@@ -50,3 +50,9 @@ export async function login(req, res, next) {
     next(err);
   }
 }
+
+export function logout(req, res) {
+  // Client-side token discard only - no server-side revocation store.
+  // Stated, accepted tradeoff for assessment scope (see docs/security.md).
+  res.json({});
+}

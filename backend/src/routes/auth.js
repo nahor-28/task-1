@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { strictLimiter } from '../middleware/rateLimit.js';
-import { register, verify, login } from '../controllers/authController.js';
+import { requireAuth } from '../middleware/auth.js';
+import { register, verify, login, logout } from '../controllers/authController.js';
 
 const router = Router();
 
@@ -21,5 +22,6 @@ const loginSchema = z.object({
 router.post('/register', strictLimiter(), validate(registerSchema), register);
 router.get('/verify', verify);
 router.post('/login', strictLimiter(), validate(loginSchema), login);
+router.post('/logout', requireAuth, logout);
 
 export default router;
