@@ -843,3 +843,16 @@ SELECT count(*) FROM submissions WHERE assignment_id = '<id>';
 **Result:** PASS — `200 {"id": "...", "status": "confirmed", "submitted_at": "...", "confirmed_at": "..."}`. `nodemon` picked up the change live.
 
 **Notes:** Stack torn down (`docker compose down`) after verification.
+
+---
+
+## 2026-08-19 — Postman collection: full happy-path walkthrough
+
+**Context:** All curl testing (Phases 1–7) had already passed, so per `CLAUDE.md` it was time to write the Postman guide. Built `postman/task-1-api.postman_collection.json` (6 folders: Auth, Groups, Assignments, Submissions, Reports & Dashboard, Error Cases) and `postman/task-1-local.postman_environment.json`, plus `docs/postman.md` explaining import/setup, the local email-verification shortcut, and the file-upload caveat (Postman collections can't embed a portable file path). Building it end-to-end as a real client would — not via direct `psql` lookups the way the curl tests sometimes did — is what surfaced the `/submissions/mine` `id` bug logged just above.
+
+**Test — full flow walked manually via curl, mirroring the collection's request sequence exactly (register x3 → verify via psql → login x3 → create group → add member → create assignment → assign to group → list as student → get own submission → submit → confirm → educator submissions list → student report → group report → dashboard):**
+**Result:** PASS at every step — response shapes and status codes matched what the collection's test scripts assert.
+
+**Caught and fixed while building:** the "Confirm before Submit (409)" error-case request was originally written as a passthrough GET with a misleading description telling the user to manually chain a second request — a stub, not something that actually demonstrates the 409. Split it into a real two-request sequence (fetch the group member's still-`not_submitted` submission id, then `PATCH .../confirm` on it directly) so it's sendable and actually asserts `409 INVALID_STATE`. Re-verified via curl after the fix.
+
+**Notes:** Stack torn down (`docker compose down`) after verification. Test accounts created for this walkthrough (`postman.educator@example.com`, `postman.leader@example.com`, `postman.member@example.com`) remain in the DB volume alongside the earlier phase-test accounts. **Postman guide is now complete and verified.**
