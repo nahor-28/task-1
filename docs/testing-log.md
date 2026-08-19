@@ -503,3 +503,81 @@ middleware({ user: { role: 'educator' } }, res, next);  // expect passed through
 **Result:** PASS — identical to the student flow, with `role: "educator"` correctly threaded through login response, JWT payload, and `/users/me`.
 
 **Notes:** Both flows run against the same backend instance in one script with no server restart between them, confirming no cross-role state leakage (e.g., rate limiter, JWT secret, DB pool all behaved correctly under back-to-back different-role traffic). Backend confirmed still healthy (`docker compose ps`) after the full run. Stack torn down afterward. **Phase 2 (Auth end-to-end) is fully complete and regression-tested for both roles.**
+
+---
+
+## 2026-08-19 — `POST /assignments` (create, educator only)
+
+**Context:** Phase 3, Task 1 (Educator assignment CRUD begins). No targeting yet — assignments are created but not yet assigned to students/groups (that's Phase 5). `dueDate` validated with `z.coerce.date()` (lenient ISO parsing, converts straight to a JS `Date` that `pg` accepts natively for `timestamptz`), `onedriveLink` validated with `z.url()`.
+
+**Test 1 — valid create as educator:**
+**Result:** PASS — `201 {"assignmentId": "..."}`. Confirmed in DB: `created_by` matches the educator's user id, `due_date` correctly parsed, `attachment_url` NULL (pending Task 5).
+
+**Test 2 — student attempts to create (role check):**
+**Result:** PASS — `403 FORBIDDEN` via `requireRole('educator')` — first real route to exercise this middleware.
+
+**Test 3 — unauthenticated:**
+**Result:** PASS — `401 UNAUTHENTICATED`.
+
+**Test 4 — missing required fields:**
+**Result:** PASS — `400 VALIDATION_ERROR`.
+
+**Test 5 — invalid `onedriveLink` (not a URL):**
+**Result:** PASS — `400 VALIDATION_ERROR`.
+
+**Notes:** Stack torn down (`docker compose down`) after verification. First endpoint to combine `requireAuth` + `requireRole` together, both confirmed working in combination (not just individually as in earlier tests).
+
+---
+
+## 2026-08-19 — `GET /assignments` (list) + `GET /assignments/:id` (detail)
+
+**Context:** Phase 3, Task 2. `GET /assignments/:id` is open to any authenticated user (no ownership check) since students will eventually need to view assignments targeted at them, not just their own — matches `docs/api.md`'s wording (no "owner" qualifier, unlike PUT/DELETE). `GET /assignments` (list) returns an empty array for students for now, since targeting doesn't exist until Phase 5 — there's no way yet to know which assignments are relevant to a given student. Added a reusable `validateParams()` middleware (mirrors `validate()` but for `req.params`) since a malformed non-UUID `:id` would otherwise hit Postgres's UUID parser and throw a raw 500 — this problem recurs on every `:id` route across every resource, so fixing it generically now rather than per-route.
+
+**Test 1 — list as educator (own assignments):**
+**Result:** PASS — `200`, returned both assignments created by that educator (including the one from Task 1's test), ordered newest first.
+
+**Test 2 — detail of a specific assignment:**
+**Result:** PASS — `200`, full row returned.
+
+**Test 3 — list as student (empty array, targeting not built yet):**
+**Result:** PASS — `200 []`.
+
+**Test 4 — student views assignment detail they don't own (no ownership block on GET):**
+**Result:** PASS — `200`, full detail returned — confirms viewing is intentionally open, unlike edit/delete which will be ownership-gated in Tasks 3-4.
+
+**Test 5 — non-UUID `:id` (e.g. `not-a-uuid`):**
+**Result:** PASS — `400 VALIDATION_ERROR`, not a raw 500 from Postgres's UUID parser.
+
+**Test 6 — valid UUID format but nonexistent assignment:**
+**Result:** PASS — `404 NOT_FOUND`.
+
+**Notes:** Stack torn down (`docker compose down`) after verification.
+
+---
+
+## 2026-08-19 — `PUT /assignments/:id` (edit, ownership-gated)
+
+**Context:** Phase 3, Task 3. Partial update (`createSchema.partial()` via zod) — only provided fields are updated, everything else preserved. Ownership check: `updateAssignment()` fetches the existing row first, checks `created_by === requesterId`, and only then builds a dynamic `SET` clause from whichever fields were supplied. Edit allowed anytime (no due-date or submission-count restriction), per `CLAUDE.md`'s locked design decision.
+
+**Test 1 — partial update (title only):**
+**Result:** PASS — `200`, title updated, `description`/`onedrive_link`/`due_date` unchanged.
+
+**Test 2 — non-owner educator attempts edit (checklist item: "Attempt edit/delete as a different educator — confirm 403"):**
+```bash
+# registered + verified a second educator account, attempted edit on the first educator's assignment
+```
+**Result:** PASS — `403 FORBIDDEN`.
+
+**Test 3 — student attempts edit (role check via `requireRole`):**
+**Result:** PASS — `403 FORBIDDEN`.
+
+**Test 4 — edit nonexistent assignment:**
+**Result:** PASS — `404 NOT_FOUND`.
+
+**Test 5 — unauthenticated edit:**
+**Result:** PASS — `401 UNAUTHENTICATED`.
+
+**Test 6 — empty body (`{}`, no-op):**
+**Result:** PASS — `200`, returned the row unchanged, no crash on a zero-column `SET` clause (handled explicitly: zero updatable keys short-circuits to returning the existing row without querying `UPDATE`).
+
+**Notes:** Stack torn down (`docker compose down`) after verification. Second educator account (`other-edu@test.com`) created for this test remains in the DB for reuse in Task 4's delete-ownership test.
