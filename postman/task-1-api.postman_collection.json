@@ -1,0 +1,507 @@
+{
+  "info": {
+    "_postman_id": "8f2c1a10-3b4d-4e9f-9a2e-task1apicoll0",
+    "name": "task-1 — Student/Educator Assignment Tracker",
+    "description": "Walks the full happy path end-to-end: register/verify/login for one educator and two students, create a group, create an assignment, target it at the group, submit + confirm as a student, then check reports/dashboard. Requests run top-to-bottom within each folder — later requests depend on IDs/tokens captured by earlier ones via the 'task-1 (local)' environment. A small 'Error Cases' folder at the end illustrates the auth/ownership/state-conflict error shapes documented in docs/api.md; it is not a replacement for the full curl regression log in docs/testing-log.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "verificationToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Auth",
+      "item": [
+        {
+          "name": "Register Educator",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Educator\",\n  \"email\": \"{{educatorEmail}}\",\n  \"password\": \"{{educatorPassword}}\",\n  \"role\": \"educator\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] },
+            "description": "Sends a real Brevo verification email. See docs/postman.md for how to verify locally without waiting on the inbox."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) { pm.environment.set('educatorId', pm.response.json().userId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register Student (Leader)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Leader\",\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\",\n  \"role\": \"student\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) { pm.environment.set('studentId', pm.response.json().userId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register Student (Member)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Member\",\n  \"email\": \"{{student2Email}}\",\n  \"password\": \"{{student2Password}}\",\n  \"role\": \"student\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) { pm.environment.set('student2Id', pm.response.json().userId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify Email (paste token)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/verify?token={{verificationToken}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "verify"],
+              "query": [{ "key": "token", "value": "{{verificationToken}}" }]
+            },
+            "description": "Set the 'verificationToken' variable (collection-level, not the shared environment) from the link in the Brevo email, then send. Repeat once per account, or skip entirely and verify via psql per docs/postman.md's local shortcut."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('200 verified:true', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().verified).to.eql(true); });"] }
+            }
+          ]
+        },
+        {
+          "name": "Login Educator",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{educatorEmail}}\",\n  \"password\": \"{{educatorPassword}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 with token', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().token).to.be.a('string'); });",
+                  "if (pm.response.code === 200) { pm.environment.set('educatorToken', pm.response.json().token); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Student (Leader)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"{{studentPassword}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 with token', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().token).to.be.a('string'); });",
+                  "if (pm.response.code === 200) { pm.environment.set('studentToken', pm.response.json().token); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Student (Member)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{student2Email}}\",\n  \"password\": \"{{student2Password}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 with token', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().token).to.be.a('string'); });",
+                  "if (pm.response.code === 200) { pm.environment.set('student2Token', pm.response.json().token); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Groups (Student)",
+      "item": [
+        {
+          "name": "Create Group",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{studentToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Postman Study Group\"\n}" },
+            "url": { "raw": "{{baseUrl}}/groups", "host": ["{{baseUrl}}"], "path": ["groups"] },
+            "description": "Requester (studentToken) becomes leader."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 with groupId', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().groupId).to.be.a('string'); });",
+                  "if (pm.response.code === 201) { pm.environment.set('groupId', pm.response.json().groupId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add Member",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{studentToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"studentId\": \"{{student2Id}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/groups/{{groupId}}/members", "host": ["{{baseUrl}}"], "path": ["groups", "{{groupId}}", "members"] },
+            "description": "Leader-only. 409 ALREADY_MEMBER if run twice."
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('201 Created', () => pm.response.to.have.status(201));"] } }]
+        },
+        {
+          "name": "Get Group Detail",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+            "url": { "raw": "{{baseUrl}}/groups/{{groupId}}", "host": ["{{baseUrl}}"], "path": ["groups", "{{groupId}}"] },
+            "description": "Any member or any educator can view. Confirm the response shows both members."
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('200 OK, 2 members', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().members).to.have.lengthOf(2); });"] } }]
+        },
+        {
+          "name": "List My Groups",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+            "url": { "raw": "{{baseUrl}}/groups/mine", "host": ["{{baseUrl}}"], "path": ["groups", "mine"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"] } }]
+        }
+      ]
+    },
+    {
+      "name": "3. Assignments (Educator)",
+      "item": [
+        {
+          "name": "Create Assignment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{educatorToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman Test Assignment\",\n  \"description\": \"Created from the Postman collection.\",\n  \"dueDate\": \"2026-12-01T00:00:00Z\",\n  \"onedriveLink\": \"https://onedrive.example.com/postman-test\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/assignments", "host": ["{{baseUrl}}"], "path": ["assignments"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 with assignmentId', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().assignmentId).to.be.a('string'); });",
+                  "if (pm.response.code === 201) { pm.environment.set('assignmentId', pm.response.json().assignmentId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload Attachment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{educatorToken}}" }],
+            "body": {
+              "mode": "formdata",
+              "formdata": [{ "key": "file", "type": "file", "src": [] }]
+            },
+            "url": { "raw": "{{baseUrl}}/assignments/{{assignmentId}}/attachment", "host": ["{{baseUrl}}"], "path": ["assignments", "{{assignmentId}}", "attachment"] },
+            "description": "Attach a local PDF or DOCX under 10MB in the Body tab before sending — Postman can't pre-select a file path from a saved collection. 400 INVALID_FILE_TYPE / FILE_TOO_LARGE otherwise."
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('200 with attachmentUrl', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().attachmentUrl).to.be.a('string'); });"] } }]
+        },
+        {
+          "name": "Assign to Group",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{educatorToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"targetType\": \"group\",\n  \"targetId\": \"{{groupId}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/assignments/{{assignmentId}}/assign", "host": ["{{baseUrl}}"], "path": ["assignments", "{{assignmentId}}", "assign"] },
+            "description": "Fans out one submissions row per current group member, transactionally (see docs/testing-log.md's Phase 5 entry for the underlying transactional test)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 with targetId', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().targetId).to.be.a('string'); });",
+                  "if (pm.response.code === 201) { pm.environment.set('targetId', pm.response.json().targetId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Assignments (as Student)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+            "url": { "raw": "{{baseUrl}}/assignments", "host": ["{{baseUrl}}"], "path": ["assignments"] },
+            "description": "Run this AFTER 'Assign to Group' — confirms the group member now sees the assignment."
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('200 OK, includes the assignment', () => { pm.response.to.have.status(200); const ids = pm.response.json().map(a => a.id); pm.expect(ids).to.include(pm.environment.get('assignmentId')); });"] } }]
+        },
+        {
+          "name": "Get Assignment Detail",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+            "url": { "raw": "{{baseUrl}}/assignments/{{assignmentId}}", "host": ["{{baseUrl}}"], "path": ["assignments", "{{assignmentId}}"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"] } }]
+        }
+      ]
+    },
+    {
+      "name": "4. Submissions (Student, two-step)",
+      "item": [
+        {
+          "name": "Get My Submission",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/submissions/mine?assignmentId={{assignmentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["submissions", "mine"],
+              "query": [{ "key": "assignmentId", "value": "{{assignmentId}}" }]
+            },
+            "description": "Captures submissionId, needed for the two PATCH calls below."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200, status not_submitted', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().status).to.eql('not_submitted'); });",
+                  "if (pm.response.code === 200) { pm.environment.set('submissionId', pm.response.json().id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Step 1: Submit",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+            "url": { "raw": "{{baseUrl}}/submissions/{{submissionId}}/submit", "host": ["{{baseUrl}}"], "path": ["submissions", "{{submissionId}}", "submit"] },
+            "description": "\"Yes, I have submitted.\" 409 if not currently not_submitted."
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('200, pending_confirmation', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().status).to.eql('pending_confirmation'); });"] } }]
+        },
+        {
+          "name": "Step 2: Confirm",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+            "url": { "raw": "{{baseUrl}}/submissions/{{submissionId}}/confirm", "host": ["{{baseUrl}}"], "path": ["submissions", "{{submissionId}}", "confirm"] },
+            "description": "Final confirm. 409 if not currently pending_confirmation (i.e. Step 1 wasn't run first)."
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('200, confirmed', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().status).to.eql('confirmed'); });"] } }]
+        },
+        {
+          "name": "List Submissions for Assignment (as Educator)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{educatorToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/submissions?assignmentId={{assignmentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["submissions"],
+              "query": [{ "key": "assignmentId", "value": "{{assignmentId}}" }]
+            },
+            "description": "Owning educator only. Confirm the leader's row now shows status: confirmed while the member's row is still not_submitted."
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"] } }]
+        }
+      ]
+    },
+    {
+      "name": "5. Reports & Dashboard",
+      "item": [
+        {
+          "name": "Student Report (self)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/reports?studentId={{studentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports"],
+              "query": [{ "key": "studentId", "value": "{{studentId}}" }]
+            }
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"] } }]
+        },
+        {
+          "name": "Group Report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{educatorToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/reports?groupId={{groupId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports"],
+              "query": [{ "key": "groupId", "value": "{{groupId}}" }]
+            },
+            "description": "Per-member completion breakdown; see docs/testing-log.md's Phase 7 entry for why this doesn't match the group_progress SQL view's raw grain."
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"] } }]
+        },
+        {
+          "name": "Educator Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{educatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/reports/dashboard", "host": ["{{baseUrl}}"], "path": ["reports", "dashboard"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"] } }]
+        }
+      ]
+    },
+    {
+      "name": "6. Error Cases (illustrative)",
+      "item": [
+        {
+          "name": "Login — wrong password (401)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{studentEmail}}\",\n  \"password\": \"definitely-wrong\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('401 INVALID_CREDENTIALS', () => { pm.response.to.have.status(401); pm.expect(pm.response.json().error.code).to.eql('INVALID_CREDENTIALS'); });"] } }]
+        },
+        {
+          "name": "Create Assignment as Student (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{studentToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Should be rejected\",\n  \"description\": \"x\",\n  \"dueDate\": \"2026-12-01T00:00:00Z\",\n  \"onedriveLink\": \"https://onedrive.example.com/x\"\n}" },
+            "url": { "raw": "{{baseUrl}}/assignments", "host": ["{{baseUrl}}"], "path": ["assignments"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('403 FORBIDDEN', () => { pm.response.to.have.status(403); pm.expect(pm.response.json().error.code).to.eql('FORBIDDEN'); });"] } }]
+        },
+        {
+          "name": "Get Member's Submission (setup)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{student2Token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/submissions/mine?assignmentId={{assignmentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["submissions", "mine"],
+              "query": [{ "key": "assignmentId", "value": "{{assignmentId}}" }]
+            },
+            "description": "The group member never ran the two-step flow, so this row is still not_submitted. Captures member2SubmissionId for the next request."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200, status not_submitted', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().status).to.eql('not_submitted'); });",
+                  "if (pm.response.code === 200) { pm.environment.set('member2SubmissionId', pm.response.json().id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm before Submit (409)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{student2Token}}" }],
+            "url": { "raw": "{{baseUrl}}/submissions/{{member2SubmissionId}}/confirm", "host": ["{{baseUrl}}"], "path": ["submissions", "{{member2SubmissionId}}", "confirm"] },
+            "description": "Skips Step 1 (submit) entirely — two-step order is enforced server-side, not just by the UI."
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('409 INVALID_STATE', () => { pm.response.to.have.status(409); pm.expect(pm.response.json().error.code).to.eql('INVALID_STATE'); });"] } }]
+        },
+        {
+          "name": "Get Nonexistent Group (404)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{studentToken}}" }],
+            "url": { "raw": "{{baseUrl}}/groups/00000000-0000-0000-0000-000000000000", "host": ["{{baseUrl}}"], "path": ["groups", "00000000-0000-0000-0000-000000000000"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('404 NOT_FOUND', () => { pm.response.to.have.status(404); pm.expect(pm.response.json().error.code).to.eql('NOT_FOUND'); });"] } }]
+        },
+        {
+          "name": "Missing Auth Header (401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/users/me", "host": ["{{baseUrl}}"], "path": ["users", "me"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('401 UNAUTHENTICATED', () => { pm.response.to.have.status(401); pm.expect(pm.response.json().error.code).to.eql('UNAUTHENTICATED'); });"] } }]
+        }
+      ]
+    }
+  ]
+}

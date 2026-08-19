@@ -44,6 +44,7 @@ No monorepo workspace tooling — `backend/` and `frontend/` are independent pnp
 | [`docs/frontend.md`](docs/frontend.md) | Route map, component inventory, state management, and the two-step submission modal interaction. |
 | [`docs/security.md`](docs/security.md) | Auth strategy, rate limiting, validation, and explicitly stated known limitations. |
 | [`docs/testing.md`](docs/testing.md) | Manual verification approach and full test checklist. |
+| [`docs/postman.md`](docs/postman.md) | How to import and run the Postman collection in `postman/` — full happy-path walkthrough plus illustrative error cases. |
 | [`docs/deployment.md`](docs/deployment.md) | Annotated Docker setup and Railway production deployment steps. |
 
 ## Key Design Decisions (summary — full detail in linked docs)
