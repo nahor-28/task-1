@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
-import { register } from '../controllers/authController.js';
+import { register, verify } from '../controllers/authController.js';
 
 const router = Router();
 
@@ -13,5 +13,6 @@ const registerSchema = z.object({
 });
 
 router.post('/register', validate(registerSchema), register);
+router.get('/verify', verify);
 
 export default router;
