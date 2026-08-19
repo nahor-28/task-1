@@ -46,6 +46,7 @@ export function Reports() {
           onChange={(e) => {
             setMode(e.target.value);
             setId('');
+            setReport(null);
           }}
           className="border border-gray-300 rounded px-3 py-2 text-sm"
         >
