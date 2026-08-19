@@ -21,7 +21,8 @@ Status codes used consistently: `200` success, `201` created, `400` validation e
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
 | GET | `/users/me` | Bearer | — | `200 { id, name, email, role }` | Current user profile. |
-| GET | `/users/search?email=` | Bearer | — | `200 [{ id, name, email }]` | Used for group member lookup by email/ID. |
+| GET | `/users/search?email=` | Bearer | — | `200 [{ id, name, email }]` | Exact-email lookup. Used for group member add by email. |
+| GET | `/users?role=student\|educator` | Bearer | — | `200 [{ id, name, email }]` | Lists all users of a role, no school/subject scoping in MVP. Used to populate the assignment-targeting, reports-lookup, and group-member-add dropdowns instead of typing an email/ID. |
 
 ## Groups
 
@@ -33,6 +34,7 @@ Status codes used consistently: `200` success, `201` created, `400` validation e
 | DELETE | `/groups/:id/members/:studentId` | Bearer (leader) | — | `200 {}` | Leader-only. |
 | DELETE | `/groups/:id` | Bearer (leader) | — | `200 {}` | Leader-only. |
 | GET | `/groups/mine` | Bearer (student) | — | `200 [{ id, name }]` | Groups the current student belongs to. |
+| GET | `/groups` | Bearer (educator) | — | `200 [{ id, name }]` | All groups, for the reports-lookup dropdown. |
 
 ## Assignments
 
@@ -50,7 +52,7 @@ Status codes used consistently: `200` success, `201` created, `400` validation e
 
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
-| GET | `/submissions?assignmentId=` | Bearer (educator, owner) | — | `200 [{ studentId, status, submittedAt, confirmedAt }]` | Per-assignment status list for educator tracking. |
+| GET | `/submissions?assignmentId=` | Bearer (educator, owner) | — | `200 [{ studentId, studentName, status, submittedAt, confirmedAt }]` | Per-assignment status list for educator tracking. |
 | GET | `/submissions/mine?assignmentId=` | Bearer (student) | — | `200 { id, status, submittedAt, confirmedAt }` | Current student's own submission for an assignment. `id` is required to call `/submit`/`/confirm` below. |
 | PATCH | `/submissions/:id/submit` | Bearer (student, owner) | — | `200 { status: 'pending_confirmation' }` | Step 1: "Yes, I have submitted." Fails 409 if not currently `not_submitted`. |
 | PATCH | `/submissions/:id/confirm` | Bearer (student, owner) | — | `200 { status: 'confirmed' }` | Step 2: final confirm. Fails 409 if not currently `pending_confirmation`. |
