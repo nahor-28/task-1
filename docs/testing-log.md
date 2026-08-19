@@ -436,3 +436,23 @@ curl http://localhost:5050/api/v1/users/me -H "Authorization: Bearer $TOKEN"
 **Result:** PASS — `401 UNAUTHENTICATED` — confirms the `purpose` claim check blocks cross-use of token types in both directions (Task 12 already confirmed the reverse: an access-shaped token can't be used to verify email).
 
 **Notes:** Stack torn down (`docker compose down`) after verification. `requireRole` is written but not yet exercised by a real route — no role-restricted endpoint exists until educator-only assignment routes and student-only group routes are built in later phases. Will be covered implicitly then; flagging here rather than leaving it silently untested.
+
+---
+
+## 2026-08-19 — `POST /auth/logout`
+
+**Context:** Phase 2, Task 15. Client-side token discard only — no server-side revocation store, a stated and accepted tradeoff per `docs/security.md`. Requires `Bearer` auth (per `docs/api.md`) but the handler does nothing beyond confirming the request is authenticated; it does not and cannot invalidate the token itself.
+
+**Test 1 — logout with valid token:**
+**Result:** PASS — `200 {}`.
+
+**Test 2 — logout without a token:**
+**Result:** PASS — `401 UNAUTHENTICATED` (via `requireAuth`).
+
+**Test 3 — same token still works after logout (confirms the documented tradeoff, not a bug):**
+```bash
+curl http://localhost:5050/api/v1/users/me -H "Authorization: Bearer $SAME_TOKEN"  # after logout
+```
+**Result:** PASS — still `200`, token remains valid until its natural 1h expiry. Matches `docs/security.md`'s explicit statement: "a stolen token remains valid for up to 1 hour after logout."
+
+**Notes:** Stack torn down (`docker compose down`) after verification. **Phase 2 (Auth end-to-end) is now functionally complete for the student role**: register → verify → login → protected route → logout, all tested. Educator role extension is Task 16.
