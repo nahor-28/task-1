@@ -689,3 +689,47 @@ curl -X DELETE .../assignments/<assignment_id>
 **Result:** PASS — `200 {}`. Follow-up `GET /groups/:id` returns `404 NOT_FOUND`.
 
 **Notes:** Stack torn down (`docker compose down`) after verification. Hit the `/auth/login` strict rate limiter (5/min) mid-run re-authenticating multiple test accounts back-to-back — confirms the tiered rate limiting from Phase 2 is still working as intended, not a bug; just had to wait out the window between test batches. **Phase 4 (student groups) is now fully tested.** Next up per the build order: Phase 5 (assignment targeting + submissions fan-out).
+
+---
+
+## 2026-08-19 — Phase 5: `POST /assignments/:id/assign` (targeting + submissions fan-out)
+
+**Context:** Phase 5 — the build order's flagged critical test: assign to a 3-member group, confirm exactly 3 `submissions` rows are created, transactionally. `assignTarget()` in `assignmentService.js` runs the `assignment_targets` insert and the `submissions` insert(s) inside a single `BEGIN`/`COMMIT` transaction on one client connection (mirroring the pattern already used for `createGroup`'s group+leader-membership insert). Duplicate-target unique-violations (`submissions(assignment_id, student_id)`) are caught in the controller by Postgres error code `23505`, following the exact pattern `authController.js` already uses for duplicate email registration — returns `409 ALREADY_ASSIGNED` instead of a raw `500`. Also closed out the "Students see nothing" placeholder in `listAssignments()` from Phase 3 — now joins `assignment_targets` (direct student target OR via `group_members` for a group target) in one query, no `UNION`, matching `schema.md`'s stated design rationale for the polymorphic `assignment_targets` table. Test student accounts: `rmrohan.1112@gmail.com`, `e2e-student@test.com`, and a newly registered `group-test-3@test.com` (verified directly via `psql` to build a 3-member group without waiting on Brevo).
+
+**Test 1 — assign to a 3-member group (the critical test):**
+```sql
+SELECT count(*) FROM submissions WHERE assignment_id = '<id>';
+```
+**Result:** PASS — `201 {"targetId": "..."}`; exactly 3 `submissions` rows created (one per group member), all `not_submitted`.
+
+**Test 2 — assign the same group again (duplicate, tests transaction rollback):**
+**Result:** PASS — `409 ALREADY_ASSIGNED`. Confirmed no partial state: `submissions` count stayed at 3 (not 4+), `assignment_targets` count for this assignment stayed at 1 (the failed second insert rolled back along with the fan-out attempt) — the whole operation is atomic, not just the submissions loop.
+
+**Test 3 — assign to a nonexistent group:**
+**Result:** PASS — `404 GROUP_NOT_FOUND`.
+
+**Test 4 — assign to an individual student (checklist item):**
+**Result:** PASS — `201`; exactly 1 `submissions` row created for that student.
+
+**Test 5 — assign to a non-student `targetId` (educator id) with `targetType: student`:**
+**Result:** PASS — `404 STUDENT_NOT_FOUND`.
+
+**Test 6 — non-owner educator attempts assign:**
+**Result:** PASS — `403 FORBIDDEN`.
+
+**Test 7 — student attempts assign:**
+**Result:** PASS — `403 FORBIDDEN` via `requireRole`.
+
+**Test 8 — unauthenticated assign:**
+**Result:** PASS — `401 UNAUTHENTICATED`.
+
+**Test 9 — invalid `targetType` (not `student`/`group`):**
+**Result:** PASS — `400 VALIDATION_ERROR`, rejected by the Zod schema before touching the service.
+
+**Test 10 — assign against a nonexistent assignment:**
+**Result:** PASS — `404 NOT_FOUND`.
+
+**Test 11 — `GET /assignments` as a student now returns targeted assignments (checklist item, was a Phase 3 placeholder):**
+**Result:** PASS — a group member sees the assignment their group was targeted with; educator's own-assignments list is unaffected.
+
+**Notes:** Stack torn down (`docker compose down`) after verification. Ran into the `/auth/login` strict rate limiter twice more mid-run (same as Phase 4 — expected, tiered rate limiting doing its job) and waited out the 60s window each time rather than working around it. **Phase 5 (assignment targeting + submissions fan-out) is now fully tested.** Next up per the build order: Phase 6 (student two-step submission).
