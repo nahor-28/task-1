@@ -639,3 +639,53 @@ curl -X DELETE .../assignments/<assignment_id>
 **Result:** PASS — `403 FORBIDDEN` via `requireRole`, blocked before the file ever reaches multer.
 
 **Notes:** Stack torn down (`docker compose down`) after verification. **Phase 3 (Educator assignment CRUD + file upload) is now fully complete and tested.** Next up per the build order: Phase 4 (student groups).
+
+---
+
+## 2026-08-19 — Phase 4: Groups (create, detail, add/remove member, delete, mine)
+
+**Context:** Phase 4 — `POST /groups`, `GET /groups/:id`, `GET /groups/mine`, `POST /groups/:id/members`, `DELETE /groups/:id/members/:studentId`, `DELETE /groups/:id`, per `docs/api.md`'s Groups section and `docs/schema.md`'s `groups`/`group_members` tables (already migrated in Phase 0). `createGroup()` inserts the group and the creator's `leader` membership row in one transaction. Leader checks (`requireLeader`) and detail-view access (member-or-educator, per api.md) are enforced at the service layer, matching the ownership-gating pattern already used for assignments. Existing seed accounts reused: `rmrohan.1112@gmail.com` / `e2e-student@test.com` (students), `erica@test.com` (educator).
+
+**Test 1 — create group (student), becomes leader:**
+**Result:** PASS — `201 {"groupId": "..."}`. Follow-up `GET /groups/:id` shows one member with `role: "leader"`.
+
+**Test 2 — detail as the leader (member access):**
+**Result:** PASS — `200`, full member list returned.
+
+**Test 3 — detail as a non-member student:**
+**Result:** PASS — `403 FORBIDDEN`.
+
+**Test 4 — detail as an educator not on the group (checklist item — "member of group or educator"):**
+**Result:** PASS — `200`, educators can view any group's detail regardless of membership.
+
+**Test 5 — add member (leader adds a second student):**
+**Result:** PASS — `201 {"memberId": "..."}`.
+
+**Test 6 — add the same member again (duplicate):**
+**Result:** PASS — `409 ALREADY_MEMBER`.
+
+**Test 7 — add member as a non-leader (member, not leader, tries):**
+**Result:** PASS — `403 FORBIDDEN`.
+
+**Test 8 — add a non-student (educator) `studentId`:**
+**Result:** PASS — `404 STUDENT_NOT_FOUND` — target validated against `users.role = 'student'`, not just existence.
+
+**Test 9 — `GET /groups/mine` for a member (not leader):**
+**Result:** PASS — `200 [{ id, name }]` includes the group they were added to.
+
+**Test 10 — remove member as a non-leader:**
+**Result:** PASS — `403 FORBIDDEN`.
+
+**Test 11 — remove member as leader:**
+**Result:** PASS — `200 {}`.
+
+**Test 12 — remove the same (now-removed) member again:**
+**Result:** PASS — `404 NOT_MEMBER`.
+
+**Test 13 — delete group as a non-member:**
+**Result:** PASS — `403 FORBIDDEN`.
+
+**Test 14 — delete group as leader:**
+**Result:** PASS — `200 {}`. Follow-up `GET /groups/:id` returns `404 NOT_FOUND`.
+
+**Notes:** Stack torn down (`docker compose down`) after verification. Hit the `/auth/login` strict rate limiter (5/min) mid-run re-authenticating multiple test accounts back-to-back — confirms the tiered rate limiting from Phase 2 is still working as intended, not a bug; just had to wait out the window between test batches. **Phase 4 (student groups) is now fully tested.** Next up per the build order: Phase 5 (assignment targeting + submissions fan-out).
