@@ -1,24 +1,24 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useToast } from '../context/ToastContext.jsx';
 
 export function Login() {
   const { login } = useAuth();
+  const toast = useToast();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError('');
     setLoading(true);
     try {
       const user = await login(email, password);
       navigate(user.role === 'educator' ? '/educator/dashboard' : '/student/dashboard');
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     } finally {
       setLoading(false);
     }
@@ -28,7 +28,6 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <form onSubmit={handleSubmit} className="bg-white p-8 rounded-lg shadow-sm border border-gray-200 w-full max-w-sm">
         <h1 className="text-xl font-semibold mb-6 text-gray-900">Log in</h1>
-        {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
         <label className="block text-sm text-gray-600 mb-1">Email</label>
         <input
           type="email"

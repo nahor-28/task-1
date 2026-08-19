@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useToast } from '../../context/ToastContext.jsx';
 
 export function Reports() {
   const { token } = useAuth();
+  const toast = useToast();
   const [mode, setMode] = useState('studentId');
   const [students, setStudents] = useState([]);
   const [groups, setGroups] = useState([]);
   const [id, setId] = useState('');
   const [report, setReport] = useState(null);
-  const [error, setError] = useState('');
 
   useEffect(() => {
     Promise.all([
@@ -20,18 +21,18 @@ export function Reports() {
         setStudents(s);
         setGroups(g);
       })
-      .catch((err) => setError(err.message));
+      .catch((err) => toast.error(err.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   async function handleLookup(e) {
     e.preventDefault();
-    setError('');
     setReport(null);
     try {
       const data = await api.get(`/reports?${mode}=${encodeURIComponent(id)}`, token);
       setReport(data);
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     }
   }
 
@@ -68,8 +69,6 @@ export function Reports() {
         </select>
         <button type="submit" className="bg-gray-900 text-white text-sm rounded px-4 py-2">Look up</button>
       </form>
-
-      {error && <p className="text-sm text-red-600">{error}</p>}
 
       {report && mode === 'studentId' && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">

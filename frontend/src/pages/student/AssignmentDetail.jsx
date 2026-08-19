@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useConfirm } from '../../hooks/useConfirm.js';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
 import { AttachmentViewer } from '../../components/AttachmentViewer.jsx';
+import { useToast } from '../../context/ToastContext.jsx';
 
 const STATUS_LABEL = {
   not_submitted: 'Not submitted',
@@ -15,10 +16,11 @@ const STATUS_LABEL = {
 export function AssignmentDetail() {
   const { id } = useParams();
   const { token } = useAuth();
+  const toast = useToast();
   const [assignment, setAssignment] = useState(null);
   const [submission, setSubmission] = useState(null);
   const [uploaded, setUploaded] = useState(false);
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState(false);
   const { confirm, dialogProps } = useConfirm();
 
@@ -31,7 +33,7 @@ export function AssignmentDetail() {
       setAssignment(a);
       setSubmission(s);
     } catch (err) {
-      setError(err.message);
+      setLoadError(err.message);
     }
   }
 
@@ -42,12 +44,12 @@ export function AssignmentDetail() {
 
   async function doSubmit() {
     setBusy(true);
-    setError('');
     try {
       await api.patch(`/submissions/${submission.id}/submit`, undefined, token);
+      toast.success('Submission recorded.');
       await load();
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     } finally {
       setBusy(false);
     }
@@ -55,18 +57,18 @@ export function AssignmentDetail() {
 
   async function doConfirm() {
     setBusy(true);
-    setError('');
     try {
       await api.patch(`/submissions/${submission.id}/confirm`, undefined, token);
+      toast.success('Submission confirmed.');
       await load();
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     } finally {
       setBusy(false);
     }
   }
 
-  if (!assignment) return error ? <p className="text-sm text-red-600">{error}</p> : null;
+  if (!assignment) return loadError ? <p className="text-sm text-red-600">{loadError}</p> : null;
 
   const needsUploadGate = Boolean(assignment.onedriveLink) && !uploaded;
 
@@ -95,7 +97,6 @@ export function AssignmentDetail() {
 
       <hr className="my-4 border-gray-200" />
 
-      {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
       <p className="text-sm text-gray-600 mb-3">
         Status: <span className="font-medium text-gray-900">{STATUS_LABEL[submission?.status]}</span>
       </p>

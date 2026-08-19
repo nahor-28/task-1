@@ -5,10 +5,12 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useConfirm } from '../../hooks/useConfirm.js';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
 import { AttachmentViewer } from '../../components/AttachmentViewer.jsx';
+import { useToast } from '../../context/ToastContext.jsx';
 
 export function AssignmentDetail() {
   const { id } = useParams();
   const { token } = useAuth();
+  const toast = useToast();
   const navigate = useNavigate();
   const [assignment, setAssignment] = useState(null);
   const [submissions, setSubmissions] = useState([]);
@@ -17,7 +19,7 @@ export function AssignmentDetail() {
   const [targetType, setTargetType] = useState('student');
   const [targetStudentId, setTargetStudentId] = useState('');
   const [targetGroupId, setTargetGroupId] = useState('');
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
   const { confirm, dialogProps } = useConfirm();
 
   async function load() {
@@ -33,7 +35,7 @@ export function AssignmentDetail() {
       setStudents(allStudents);
       setGroups(allGroups);
     } catch (err) {
-      setError(err.message);
+      setLoadError(err.message);
     }
   }
 
@@ -43,15 +45,15 @@ export function AssignmentDetail() {
   }, [id, token]);
 
   async function doAssign() {
-    setError('');
     try {
       const targetId = targetType === 'student' ? targetStudentId : targetGroupId;
       await api.post(`/assignments/${id}/assign`, { targetType, targetId }, token);
+      toast.success('Assignment assigned.');
       setTargetStudentId('');
       setTargetGroupId('');
       await load();
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     }
   }
 
@@ -64,12 +66,12 @@ export function AssignmentDetail() {
   }
 
   async function doDelete() {
-    setError('');
     try {
       await api.del(`/assignments/${id}`, token);
+      toast.success('Assignment deleted.');
       navigate('/educator/assignments');
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     }
   }
 
@@ -77,7 +79,7 @@ export function AssignmentDetail() {
     confirm('Delete assignment?', `Delete "${assignment.title}"? This cannot be undone.`, doDelete);
   }
 
-  if (!assignment) return error ? <p className="text-sm text-red-600">{error}</p> : null;
+  if (!assignment) return loadError ? <p className="text-sm text-red-600">{loadError}</p> : null;
 
   return (
     <div className="space-y-6">
@@ -93,7 +95,6 @@ export function AssignmentDetail() {
         <p className="text-sm text-gray-500 mb-2">Due {new Date(assignment.dueDate).toLocaleDateString()}</p>
         <p className="text-sm text-gray-700 mb-3">{assignment.description}</p>
         <AttachmentViewer url={assignment.attachmentUrl} />
-        {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg p-6">

@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useToast } from '../../context/ToastContext.jsx';
 import { useConfirm } from '../../hooks/useConfirm.js';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
 
 export function Groups() {
   const { token, user } = useAuth();
+  const toast = useToast();
   const [groups, setGroups] = useState([]);
   const [selected, setSelected] = useState(null);
   const [allStudents, setAllStudents] = useState([]);
   const [newGroupName, setNewGroupName] = useState('');
   const [memberId, setMemberId] = useState('');
-  const [error, setError] = useState('');
   const { confirm, dialogProps } = useConfirm();
 
   async function loadGroups() {
@@ -20,62 +21,61 @@ export function Groups() {
   }
 
   useEffect(() => {
-    loadGroups().catch((err) => setError(err.message));
-    api.get('/users?role=student', token).then(setAllStudents).catch((err) => setError(err.message));
+    loadGroups().catch((err) => toast.error(err.message));
+    api.get('/users?role=student', token).then(setAllStudents).catch((err) => toast.error(err.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   async function openGroup(id) {
-    setError('');
     setMemberId('');
     try {
       const detail = await api.get(`/groups/${id}`, token);
       setSelected(detail);
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     }
   }
 
   async function createGroup() {
-    setError('');
     try {
       await api.post('/groups', { name: newGroupName }, token);
+      toast.success('Group created.');
       setNewGroupName('');
       await loadGroups();
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     }
   }
 
   async function addMember() {
-    setError('');
     try {
       await api.post(`/groups/${selected.id}/members`, { studentId: memberId }, token);
+      toast.success('Member added.');
       setMemberId('');
       await openGroup(selected.id);
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     }
   }
 
   async function removeMember(studentId) {
-    setError('');
     try {
       await api.del(`/groups/${selected.id}/members/${studentId}`, token);
+      toast.success('Member removed.');
       await openGroup(selected.id);
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     }
   }
 
   async function deleteGroup() {
-    setError('');
     try {
       await api.del(`/groups/${selected.id}`, token);
+      toast.success('Group deleted.');
       setSelected(null);
       await loadGroups();
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     }
   }
 
@@ -90,7 +90,6 @@ export function Groups() {
       <ConfirmDialog {...dialogProps} />
       <div>
         <h1 className="text-lg font-semibold text-gray-900 mb-4">Your Groups</h1>
-        {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
         <ul className="space-y-2 mb-6">
           {groups.map((g) => (
             <li key={g.id}>

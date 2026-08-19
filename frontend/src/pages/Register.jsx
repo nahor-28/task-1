@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
+import { useToast } from '../context/ToastContext.jsx';
 
 export function Register() {
+  const toast = useToast();
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'student' });
-  const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -14,13 +15,12 @@ export function Register() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError('');
     setLoading(true);
     try {
       await api.post('/auth/register', form);
       setDone(true);
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     } finally {
       setLoading(false);
     }
@@ -41,7 +41,6 @@ export function Register() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <form onSubmit={handleSubmit} className="bg-white p-8 rounded-lg shadow-sm border border-gray-200 w-full max-w-sm">
         <h1 className="text-xl font-semibold mb-6 text-gray-900">Register</h1>
-        {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
         <label className="block text-sm text-gray-600 mb-1">Name</label>
         <input required value={form.name} onChange={update('name')} className="w-full border border-gray-300 rounded px-3 py-2 mb-4 text-sm" />
         <label className="block text-sm text-gray-600 mb-1">Email</label>

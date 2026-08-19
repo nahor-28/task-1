@@ -4,28 +4,31 @@ import { api } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useConfirm } from '../../hooks/useConfirm.js';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
+import { useToast } from '../../context/ToastContext.jsx';
 
 export function AssignmentForm() {
   const { id } = useParams();
   const isEdit = Boolean(id);
   const { token } = useAuth();
+  const toast = useToast();
   const navigate = useNavigate();
   const [form, setForm] = useState({ title: '', description: '', dueDate: '', onedriveLink: '' });
   const [file, setFile] = useState(null);
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { confirm, dialogProps } = useConfirm();
 
   useEffect(() => {
     if (!isEdit) return;
-    api.get(`/assignments/${id}`, token).then((a) =>
-      setForm({
-        title: a.title,
-        description: a.description,
-        dueDate: a.dueDate.slice(0, 10),
-        onedriveLink: a.onedriveLink || '',
-      }),
-    );
+    api.get(`/assignments/${id}`, token)
+      .then((a) =>
+        setForm({
+          title: a.title,
+          description: a.description,
+          dueDate: a.dueDate.slice(0, 10),
+          onedriveLink: a.onedriveLink || '',
+        }),
+      )
+      .catch((err) => toast.error(err.message));
   }, [id, isEdit, token]);
 
   function update(field) {
@@ -42,7 +45,6 @@ export function AssignmentForm() {
   }
 
   async function save() {
-    setError('');
     setLoading(true);
     try {
       const payload = { ...form, onedriveLink: form.onedriveLink || undefined };
@@ -55,9 +57,10 @@ export function AssignmentForm() {
         formData.append('file', file);
         await api.upload(`/assignments/${assignmentId}/attachment`, formData, token);
       }
+      toast.success(isEdit ? 'Assignment updated.' : 'Assignment created.');
       navigate(`/educator/assignments/${assignmentId}`);
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     } finally {
       setLoading(false);
     }
@@ -67,7 +70,6 @@ export function AssignmentForm() {
     <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-lg p-6 max-w-lg">
       <ConfirmDialog {...dialogProps} />
       <h1 className="text-lg font-semibold text-gray-900 mb-4">{isEdit ? 'Edit Assignment' : 'New Assignment'}</h1>
-      {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
       <label className="block text-sm text-gray-600 mb-1">Title</label>
       <input required value={form.title} onChange={update('title')} className="w-full border border-gray-300 rounded px-3 py-2 mb-4 text-sm" />
       <label className="block text-sm text-gray-600 mb-1">Description</label>
