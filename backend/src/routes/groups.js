@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { validate, validateParams } from '../middleware/validate.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
-import { create, detail, mine, addMemberHandler, removeMemberHandler, remove } from '../controllers/groupController.js';
+import { create, detail, mine, all, addMemberHandler, removeMemberHandler, remove } from '../controllers/groupController.js';
 
 const router = Router();
 
@@ -25,6 +25,7 @@ const memberParamSchema = z.object({
 
 router.post('/', requireAuth, requireRole('student'), validate(createSchema), create);
 router.get('/mine', requireAuth, requireRole('student'), mine);
+router.get('/', requireAuth, requireRole('educator'), all);
 router.get('/:id', requireAuth, validateParams(idParamSchema), detail);
 router.post(
   '/:id/members',

@@ -36,6 +36,11 @@ export async function getGroup(id) {
   return { ...rows[0], members: members.rows };
 }
 
+export async function listAllGroups() {
+  const { rows } = await pool.query('SELECT id, name FROM groups ORDER BY name');
+  return rows;
+}
+
 export async function listMyGroups(studentId) {
   const { rows } = await pool.query(
     `SELECT g.id, g.name

@@ -1,5 +1,17 @@
 import { pool } from '../db/pool.js';
 
+function mapSubmission(row) {
+  if (!row) return row;
+  return {
+    id: row.id,
+    studentId: row.student_id,
+    studentName: row.student_name,
+    status: row.status,
+    submittedAt: row.submitted_at,
+    confirmedAt: row.confirmed_at,
+  };
+}
+
 export async function listForAssignment(assignmentId, requesterId) {
   const { rows: assignmentRows } = await pool.query(
     'SELECT created_by FROM assignments WHERE id = $1',
@@ -10,11 +22,12 @@ export async function listForAssignment(assignmentId, requesterId) {
   if (assignment.created_by !== requesterId) return { error: 'FORBIDDEN' };
 
   const { rows } = await pool.query(
-    `SELECT student_id, status, submitted_at, confirmed_at
-     FROM submissions WHERE assignment_id = $1 ORDER BY student_id`,
+    `SELECT s.student_id, u.name AS student_name, s.status, s.submitted_at, s.confirmed_at
+     FROM submissions s JOIN users u ON u.id = s.student_id
+     WHERE s.assignment_id = $1 ORDER BY u.name`,
     [assignmentId],
   );
-  return { submissions: rows };
+  return { submissions: rows.map(mapSubmission) };
 }
 
 export async function getMine(assignmentId, studentId) {
@@ -24,7 +37,7 @@ export async function getMine(assignmentId, studentId) {
     [assignmentId, studentId],
   );
   if (!rows[0]) return { error: 'SUBMISSION_NOT_FOUND' };
-  return { submission: rows[0] };
+  return { submission: mapSubmission(rows[0]) };
 }
 
 async function getOwnedSubmission(id, studentId) {

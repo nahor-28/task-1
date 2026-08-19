@@ -1,6 +1,7 @@
 import {
   createGroup,
   isMemberOrGroupExists,
+  listAllGroups,
   listMyGroups,
   addMember,
   removeMember,
@@ -44,6 +45,14 @@ export async function detail(req, res, next) {
 export async function mine(req, res, next) {
   try {
     res.json(await listMyGroups(req.user.id));
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function all(req, res, next) {
+  try {
+    res.json(await listAllGroups());
   } catch (err) {
     next(err);
   }
