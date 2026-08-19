@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import authRouter from './routes/auth.js';
 import usersRouter from './routes/users.js';
+import assignmentsRouter from './routes/assignments.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -16,6 +17,7 @@ app.get('/api/v1/health', (req, res) => {
 
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/users', usersRouter);
+app.use('/api/v1/assignments', assignmentsRouter);
 
 app.use((err, req, res, next) => {
   console.error(err);
