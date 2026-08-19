@@ -8,6 +8,15 @@ Before writing code or making any changes, always give a brief (what you plan to
 ## Working rule — skills
 For this project only: do not invoke any Claude Code skill other than `ponytail` unless I explicitly ask for it by name. Before committing, run the `ponytail` skill to check the diff for code redundancies/over-engineering.
 
+## Working rule — pre-research before coding
+Before writing code that uses an external library, package, or service (npm packages, Brevo, Multer, etc.), check the web first for the current stable version and up-to-date official documentation. Don't rely on training-data assumptions about versions or APIs — verify, then write code against what's actually current.
+
+## Working rule — flag coding-standard defaults, don't silently pick one
+Before defaulting on any coding-standard-level choice — module system (CommonJS vs ESM), code style/formatting conventions, file naming conventions, async patterns (callbacks vs promises vs async/await), import ordering, or similar low-level conventions not already settled elsewhere in this file — ask which one I want instead of silently picking one. This applies even when the choice seems minor or unlikely to affect the overall project outcome; these are coding standards I want to be informed about and decide on, not just functional/architectural choices (like Node vs pnpm vs Express version, which are already covered by the general confirm-before-acting rule). Once I answer, record the decision here so it doesn't get re-asked.
+
+**Decided:**
+- Module system: **ESM** (`import`/`export`, `"type": "module"` in `package.json`), not CommonJS.
+
 ## Stack
 - Frontend: React.js + Tailwind CSS
 - Backend: Node.js + Express + PostgreSQL
