@@ -783,3 +783,52 @@ SELECT count(*) FROM submissions WHERE assignment_id = '<id>';
 **Result:** PASS — `404 ASSIGNMENT_NOT_FOUND`.
 
 **Notes:** Stack torn down (`docker compose down`) after verification. `nodemon` picked up the `FORBIDDEN` message fix live inside the running container, no rebuild needed — re-verified test 9 after the fix. **Phase 6 (two-step submission) is now fully tested — all of core CRUD (Phases 1–6) is complete.** Next up per the build order: Phase 7 (read-only dashboards, both roles).
+
+---
+
+## 2026-08-19 — Phase 7: `GET /reports`, `GET /reports/dashboard`
+
+**Context:** Phase 7, the final phase — read-only views over already-tested data, per `docs/schema.md`'s "no standalone reports table" design. Added migration `007_create_group_progress_view.sql`, applying the `group_progress` SQL view exactly as documented in `schema.md` (was documented but never migrated before this phase). Clarified two response-shape ambiguities in `docs/api.md` with the user before building: `?groupId=` returns `members: [{ studentId, name, completionRate, assignments: [{ id, title, status }] }]` (per-member breakdown, each computed the same way as the `?studentId=` report) rather than the view's raw per-assignment grain; the `group_progress` view itself is used for the dashboard's `groupSummaries` instead, which fits its (group, assignment) grain naturally. `completionRate` for a student/group is `confirmed / total` submissions (0 when there are none, not `NaN`/`null`).
+
+**Test 1 — `?studentId=` as the student themself (self-access):**
+**Result:** PASS — `200 { assignments: [...], completionRate }`.
+
+**Test 2 — `?studentId=` for a different student (checklist item):**
+**Result:** PASS — `403 FORBIDDEN`.
+
+**Test 3 — `?studentId=` as any educator (checklist item):**
+**Result:** PASS — `200`, same shape, no ownership restriction (educators can view any student).
+
+**Test 4 — `?groupId=` as the group leader (a member):**
+**Result:** PASS — `200 { members: [...], completionRate }`, per-member breakdown with each member's own assignment list.
+
+**Test 5 — `?groupId=` as a genuine non-member student (checklist item):**
+**Result:** PASS — `403 FORBIDDEN`. (First run reused a student who turned out to already be a group member — false pass; caught it, registered a fresh `outsider@test.com` with no group ties, and re-ran to confirm the real 403.)
+
+**Test 6 — `?groupId=` as any educator:**
+**Result:** PASS — `200`, no membership restriction for educators.
+
+**Test 7 — `?groupId=` for a nonexistent group:**
+**Result:** PASS — `404 NOT_FOUND`.
+
+**Test 8 — both `studentId` and `groupId` provided:**
+**Result:** PASS — `400 VALIDATION_ERROR`, Zod `.refine()` rejects before hitting the service.
+
+**Test 9 — neither param provided:**
+**Result:** PASS — `400 VALIDATION_ERROR`.
+
+**Test 10 — `/reports/dashboard` as the owning educator:**
+**Result:** PASS — `200 { totalAssignments, totalStudents, avgCompletionRate, groupSummaries }`, numbers matched the known test data (9 assignments, 3 distinct students with submissions, 1 group summary).
+
+**Test 11 — `/reports/dashboard` as a different educator with no assignments:**
+**Result:** PASS — `200` with all zeros/empty array, confirming the dashboard is scoped to `created_by`, not global.
+
+**Test 12 — `/reports/dashboard` as a student (checklist item):**
+**Result:** PASS — `403 FORBIDDEN` via `requireRole`.
+
+**Test 13 — unauthenticated `?studentId=`:**
+**Result:** PASS — `401 UNAUTHENTICATED`.
+
+**Bug caught and fixed mid-test:** `groupSummaries` rows initially returned the raw `completion_rate` column (snake_case) while every other field in the same `/reports/dashboard` response was camelCase (`totalAssignments`, `avgCompletionRate`) — an inconsistent response shape. Fixed by mapping the row to `{ id, name, completionRate }` in `reportService.js` before returning; re-verified test 10 after the fix (`nodemon` picked it up live, no rebuild).
+
+**Notes:** Stack torn down (`docker compose down`) after verification. **Phase 7 (dashboards) is now fully tested — all 7 phases of the build order are complete.**
