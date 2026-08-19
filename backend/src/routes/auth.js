@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
-import { register, verify } from '../controllers/authController.js';
+import { strictLimiter } from '../middleware/rateLimit.js';
+import { register, verify, login } from '../controllers/authController.js';
 
 const router = Router();
 
@@ -12,7 +13,13 @@ const registerSchema = z.object({
   role: z.enum(['student']),
 });
 
-router.post('/register', validate(registerSchema), register);
+const loginSchema = z.object({
+  email: z.email(),
+  password: z.string().min(1),
+});
+
+router.post('/register', strictLimiter(), validate(registerSchema), register);
 router.get('/verify', verify);
+router.post('/login', strictLimiter(), validate(loginSchema), login);
 
 export default router;

@@ -1,4 +1,4 @@
-import { registerUser, verifyEmail } from '../services/authService.js';
+import { registerUser, verifyEmail, loginUser } from '../services/authService.js';
 
 const PG_UNIQUE_VIOLATION = '23505';
 
@@ -25,6 +25,27 @@ export async function verify(req, res, next) {
       });
     }
     res.json({ verified: true });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function login(req, res, next) {
+  try {
+    const result = await loginUser(req.body);
+
+    if (result.error === 'INVALID_CREDENTIALS') {
+      return res.status(401).json({
+        error: { message: 'Invalid email or password', code: 'INVALID_CREDENTIALS' },
+      });
+    }
+    if (result.error === 'EMAIL_NOT_VERIFIED') {
+      return res.status(403).json({
+        error: { message: 'Please verify your email before logging in', code: 'EMAIL_NOT_VERIFIED' },
+      });
+    }
+
+    res.json(result);
   } catch (err) {
     next(err);
   }
