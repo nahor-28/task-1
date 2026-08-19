@@ -1,11 +1,27 @@
 import { pool } from '../db/pool.js';
 
+const ASSIGNMENT_COLUMNS = 'id, title, description, due_date, onedrive_link, attachment_url, created_by, created_at';
+
+function mapAssignment(row) {
+  if (!row) return row;
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    dueDate: row.due_date,
+    onedriveLink: row.onedrive_link,
+    attachmentUrl: row.attachment_url,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+  };
+}
+
 export async function createAssignment({ title, description, dueDate, onedriveLink, createdBy }) {
   const { rows } = await pool.query(
     `INSERT INTO assignments (title, description, due_date, onedrive_link, created_by)
      VALUES ($1, $2, $3, $4, $5)
      RETURNING id`,
-    [title, description, dueDate, onedriveLink, createdBy],
+    [title, description, dueDate, onedriveLink ?? null, createdBy],
   );
   return { assignmentId: rows[0].id };
 }
@@ -21,24 +37,22 @@ export async function listAssignments(user) {
        ORDER BY a.created_at DESC`,
       [user.id],
     );
-    return rows;
+    return rows.map(mapAssignment);
   }
 
   const { rows } = await pool.query(
-    `SELECT id, title, description, due_date, onedrive_link, attachment_url, created_by, created_at
-     FROM assignments WHERE created_by = $1 ORDER BY created_at DESC`,
+    `SELECT ${ASSIGNMENT_COLUMNS} FROM assignments WHERE created_by = $1 ORDER BY created_at DESC`,
     [user.id],
   );
-  return rows;
+  return rows.map(mapAssignment);
 }
 
 export async function getAssignment(id) {
   const { rows } = await pool.query(
-    `SELECT id, title, description, due_date, onedrive_link, attachment_url, created_by, created_at
-     FROM assignments WHERE id = $1`,
+    `SELECT ${ASSIGNMENT_COLUMNS} FROM assignments WHERE id = $1`,
     [id],
   );
-  return rows[0] ?? null;
+  return mapAssignment(rows[0]);
 }
 
 async function getOwnedAssignment(id, requesterId) {
@@ -46,7 +60,7 @@ async function getOwnedAssignment(id, requesterId) {
   if (!existing) {
     return { error: 'NOT_FOUND' };
   }
-  if (existing.created_by !== requesterId) {
+  if (existing.createdBy !== requesterId) {
     return { error: 'FORBIDDEN' };
   }
   return { assignment: existing };
@@ -72,11 +86,10 @@ export async function updateAssignment(id, requesterId, updates) {
   const values = columns.map((key) => updates[key]);
 
   const { rows } = await pool.query(
-    `UPDATE assignments SET ${setClause} WHERE id = $1
-     RETURNING id, title, description, due_date, onedrive_link, attachment_url, created_by, created_at`,
+    `UPDATE assignments SET ${setClause} WHERE id = $1 RETURNING ${ASSIGNMENT_COLUMNS}`,
     [id, ...values],
   );
-  return { assignment: rows[0] };
+  return { assignment: mapAssignment(rows[0]) };
 }
 
 export async function deleteAssignment(id, requesterId) {

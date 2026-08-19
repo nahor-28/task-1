@@ -28,7 +28,7 @@ const createSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
   dueDate: z.coerce.date(),
-  onedriveLink: z.url(),
+  onedriveLink: z.url().optional(),
 });
 
 const updateSchema = createSchema.partial();
