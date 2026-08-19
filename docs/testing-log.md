@@ -581,3 +581,61 @@ middleware({ user: { role: 'educator' } }, res, next);  // expect passed through
 **Result:** PASS — `200`, returned the row unchanged, no crash on a zero-column `SET` clause (handled explicitly: zero updatable keys short-circuits to returning the existing row without querying `UPDATE`).
 
 **Notes:** Stack torn down (`docker compose down`) after verification. Second educator account (`other-edu@test.com`) created for this test remains in the DB for reuse in Task 4's delete-ownership test.
+
+---
+
+## 2026-08-19 — `DELETE /assignments/:id` (ownership-gated, submission-blocked)
+
+**Context:** Phase 3, Task 4 — completes `docs/testing.md`'s "Assignments (Educator)" checklist section. `deleteAssignment()` checks existence → ownership → submission count (`SELECT 1 FROM submissions WHERE assignment_id = $1 LIMIT 1`) → only then deletes. Since assignment targeting/submission fan-out isn't built until Phase 5, the has-submissions case was tested by manually inserting a `submissions` row via `psql` — simulating what the real fan-out will produce.
+
+**Test 1 — delete with zero submissions (checklist item):**
+**Result:** PASS — `200 {}`; confirmed gone via a follow-up `GET` returning `404`.
+
+**Test 2 — delete blocked when a submission exists (checklist item):**
+```sql
+INSERT INTO submissions (assignment_id, student_id) VALUES ('<assignment_id>', '<student_id>');
+```
+```bash
+curl -X DELETE .../assignments/<assignment_id>
+```
+**Result:** PASS — `409 {"error":{"message":"Cannot delete an assignment with existing submissions - archive instead","code":"HAS_SUBMISSIONS"}}`; confirmed the assignment still exists via a follow-up `GET` returning `200`.
+
+**Test 3 — non-owner educator attempts delete (checklist item):**
+**Result:** PASS — `403 FORBIDDEN`.
+
+**Test 4 — student attempts delete:**
+**Result:** PASS — `403 FORBIDDEN` via `requireRole`.
+
+**Test 5 — unauthenticated delete:**
+**Result:** PASS — `401 UNAUTHENTICATED`.
+
+**Test 6 — delete nonexistent assignment:**
+**Result:** PASS — `404 NOT_FOUND`.
+
+**Notes:** Stack torn down (`docker compose down`) after verification. **`docs/testing.md`'s full "Assignments (Educator)" checklist section is now covered.** Only remaining piece of Phase 3 is Task 5 (multer file upload).
+
+---
+
+## 2026-08-19 — `POST /assignments/:id/attachment` (multer upload)
+
+**Context:** Phase 3, Task 5 — completes Phase 3. Pre-research confirmed multer 2.2.0 is current stable and unaffected by CVE-2025-47944/CVE-2026-3520 (fixed at 2.1.1, we're newer). `diskStorage` writes to `backend/uploads/` (resolved via `import.meta.url`, matching the Docker volume mount), filename is `randomUUID() + original extension` — original filename never trusted directly, per `docs/security.md`. MIME whitelist (PDF, DOCX) and 10MB cap enforced via multer's `fileFilter`/`limits`. Multer's callback-style errors are wrapped in a small `handleUpload` route function that converts known errors (`LIMIT_FILE_SIZE`, the custom `INVALID_FILE_TYPE`) into clean `400` responses matching the API's error shape, passing anything unexpected to the global handler. Ownership check happens in the controller after multer runs (simplest option, consistent with every other assignment endpoint's pattern) - if unauthorized, the just-written file is deleted via `fs.unlink` so nothing is orphaned on disk.
+
+**Test 1 — valid PDF upload:**
+**Result:** PASS — `200 {"attachmentUrl": "/uploads/<uuid>.pdf"}`. Confirmed: file exists on disk with the UUID name (not the original `test.pdf`), `attachment_url` persisted in the DB.
+
+**Test 2 — disallowed MIME type (`.txt`, checklist item):**
+**Result:** PASS — `400 INVALID_FILE_TYPE`.
+
+**Test 3 — file over the 10MB cap (checklist item):**
+**Result:** PASS — `400 FILE_TOO_LARGE`. Confirmed no orphaned partial file left in `uploads/` — multer's `limits.fileSize` cleans up automatically.
+
+**Test 4 — no file attached:**
+**Result:** PASS — `400 VALIDATION_ERROR`.
+
+**Test 5 — non-owner educator uploads a valid file (ownership + cleanup):**
+**Result:** PASS — `403 FORBIDDEN`; confirmed the uploaded file was deleted (not left in `uploads/`) and the assignment's `attachment_url` was untouched by the rejected attempt.
+
+**Test 6 — student attempts upload:**
+**Result:** PASS — `403 FORBIDDEN` via `requireRole`, blocked before the file ever reaches multer.
+
+**Notes:** Stack torn down (`docker compose down`) after verification. **Phase 3 (Educator assignment CRUD + file upload) is now fully complete and tested.** Next up per the build order: Phase 4 (student groups).
