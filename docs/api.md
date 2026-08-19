@@ -51,7 +51,7 @@ Status codes used consistently: `200` success, `201` created, `400` validation e
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
 | GET | `/submissions?assignmentId=` | Bearer (educator, owner) | — | `200 [{ studentId, status, submittedAt, confirmedAt }]` | Per-assignment status list for educator tracking. |
-| GET | `/submissions/mine?assignmentId=` | Bearer (student) | — | `200 { status, submittedAt, confirmedAt }` | Current student's own submission for an assignment. |
+| GET | `/submissions/mine?assignmentId=` | Bearer (student) | — | `200 { id, status, submittedAt, confirmedAt }` | Current student's own submission for an assignment. `id` is required to call `/submit`/`/confirm` below. |
 | PATCH | `/submissions/:id/submit` | Bearer (student, owner) | — | `200 { status: 'pending_confirmation' }` | Step 1: "Yes, I have submitted." Fails 409 if not currently `not_submitted`. |
 | PATCH | `/submissions/:id/confirm` | Bearer (student, owner) | — | `200 { status: 'confirmed' }` | Step 2: final confirm. Fails 409 if not currently `pending_confirmation`. |
 

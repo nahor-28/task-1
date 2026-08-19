@@ -19,7 +19,7 @@ export async function listForAssignment(assignmentId, requesterId) {
 
 export async function getMine(assignmentId, studentId) {
   const { rows } = await pool.query(
-    `SELECT status, submitted_at, confirmed_at
+    `SELECT id, status, submitted_at, confirmed_at
      FROM submissions WHERE assignment_id = $1 AND student_id = $2`,
     [assignmentId, studentId],
   );
