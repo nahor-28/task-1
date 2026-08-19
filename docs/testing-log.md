@@ -269,3 +269,96 @@ node src/db/migrate.js   # then delete the test file
 **Result:** PASS — script printed `Failed: 999_bad_test.sql`, exited non-zero (exit code 1) instead of failing silently, and `SELECT name FROM schema_migrations` afterward showed only the original 6 real migrations — the bad one was rolled back and never recorded as applied.
 
 **Notes:** Stack torn down (`docker compose down`) after verification. Migration workflow (write `.sql` file → `pnpm run migrate`) is now fully functional for Phase 2 onward.
+
+---
+
+## 2026-08-19 — `POST /auth/register` (student role, first pass)
+
+**Context:** Phase 2, Task 11. First auth endpoint — student role only for now (educator added in Task 16). New pieces: `backend/src/db/pool.js` (shared `pg.Pool`), `backend/src/middleware/validate.js` (generic zod body validator), `backend/src/services/authService.js` (bcrypt hash + insert), `backend/src/controllers/authController.js`, `backend/src/routes/auth.js`. Fixed an Express-4-specific bug along the way: async route handlers don't auto-forward thrown errors to error middleware in Express 4 (unlike Express 5) — controller now calls `next(err)` explicitly for unexpected errors, with a global error handler added in `src/index.js`.
+
+**Setup:** Full stack via `docker compose up -d --build` with a fresh volume, migrations run via `docker compose exec backend pnpm run migrate` (confirms the migration workflow works inside the container, not just locally).
+
+**Test 1 — valid registration:**
+```bash
+curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST http://localhost:5050/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice Student","email":"alice@test.com","password":"password123","role":"student"}'
+```
+**Result:** PASS — `201 {"userId": "..."}`.
+
+**Test 2 — duplicate email:**
+**Result:** PASS — `409 {"error":{"message":"Email already registered","code":"EMAIL_IN_USE"}}`.
+
+**Test 3 — invalid email format:**
+**Result:** PASS — `400`, `VALIDATION_ERROR`.
+
+**Test 4 — password under 8 chars:**
+**Result:** PASS — `400`, `VALIDATION_ERROR`.
+
+**Test 5 — disallowed role (`educator`, not yet supported in this pass):**
+**Result:** PASS — `400`, `VALIDATION_ERROR`.
+
+**Test 6 — missing required fields:**
+**Result:** PASS — `400`, `VALIDATION_ERROR`.
+
+**Test 7 — password never stored in plaintext, `email_verified` defaults false:**
+```sql
+SELECT name, email, role, email_verified, password_hash FROM users WHERE email = 'alice@test.com';
+```
+**Result:** PASS — `password_hash` is a bcrypt hash (`$2b$10$...`, cost factor 10 per `docs/security.md`), `email_verified` is `f`.
+
+**Test 8 — server didn't crash after error-path requests (validates the Express 4 `next(err)` fix):**
+```bash
+docker compose ps   # backend still "Up", not restarted/crashed
+curl .../api/v1/health   # still 200
+```
+**Result:** PASS.
+
+**Notes:** Stack torn down (`docker compose down`) after verification. Registration is currently student-only by design (Task 11 scope); educator role and login/JWT come next.
+
+---
+
+## 2026-08-19 — Brevo email verification + `GET /auth/verify`
+
+**Context:** Phase 2, Task 12. Verification token is a stateless signed JWT (`{ userId, purpose: 'email_verification' }`, 24h expiry, signed with `JWT_SECRET`) — user's choice over a DB-stored token column, since resend functionality isn't built yet and a stateless token needs no schema change while still being "signed, time-limited" per `docs/security.md`. New pieces: `backend/src/services/emailService.js` (`@getbrevo/brevo` v6.0.3, current stable), `authService.js` extended with `verifyEmail()`, controller/route additions for `GET /auth/verify`. `registerUser` catches email-send failures and logs them rather than failing the whole registration (email delivery being down shouldn't block account creation).
+
+**Test 1 — register triggers a real Brevo send attempt:**
+```bash
+curl -X POST http://localhost:5050/api/v1/auth/register -d '{"name":"Bob Student","email":"...","password":"password123","role":"student"}'
+```
+**Result:** PARTIAL — registration succeeded (`201`, matches Test 1 design goal: email failure must not block registration), but the actual Brevo send failed with `401 unauthorized` — Brevo's IP-allowlist security check rejected the request from this machine's IP. This is a Brevo account configuration issue (IP not yet authorized at https://app.brevo.com/security/authorised_ips), not an application bug. User is authorizing the IP on their end; **real email delivery still needs re-testing once that's done.**
+
+**Test 2 — verify with a token generated the same way the app generates it (simulating the link a user would click, since the real email didn't arrive):**
+```bash
+# token signed via: jwt.sign({ userId, purpose: 'email_verification' }, JWT_SECRET, { expiresIn: '24h' })
+curl "http://localhost:5050/api/v1/auth/verify?token=<token>"
+```
+**Result:** PASS — `200 {"verified":true}`. Confirmed in DB: `email_verified` changed from `f` to `t` for that user.
+
+**Test 3 — invalid/garbage token:**
+**Result:** PASS — `400 INVALID_TOKEN`.
+
+**Test 4 — missing token:**
+**Result:** PASS — `400 INVALID_TOKEN`.
+
+**Test 5 — wrong-purpose token (a validly-signed JWT with `purpose: 'access'` instead of `'email_verification'`):**
+**Result:** PASS — `400 INVALID_TOKEN` — confirms the `purpose` claim check prevents a future access token from being reused to verify an email.
+
+**Notes:** Stack torn down (`docker compose down`) after verification.
+
+---
+
+## 2026-08-19 — Follow-up: real Brevo delivery, end-to-end
+
+**Context:** Closes out the follow-up from the prior entry. User authorized this machine's IP in Brevo's dashboard (https://app.brevo.com/security/authorised_ips) after the earlier `401 unauthorized` block.
+
+**Test — register, receive real email, click real link:**
+```bash
+curl -X POST http://localhost:5050/api/v1/auth/register -d '{"name":"Real Send Test","email":"...+brevotest@gmail.com",...}'
+# backend logs: no "Failed to send" error this time
+# user confirmed the email physically arrived in their inbox
+curl "http://localhost:5050/api/v1/auth/verify?token=<real token copied from the received email>"
+```
+**Result:** PASS — email delivered for real via Brevo, and the real token from that email correctly verified: `200 {"verified":true}`, DB `email_verified` confirmed `t`. Full register → email → verify flow now proven end-to-end with no synthetic shortcuts.
+
+**Notes:** Stack torn down (`docker compose down`) after verification. Task 12 fully closed, no open follow-ups.
