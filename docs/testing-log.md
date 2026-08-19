@@ -362,3 +362,41 @@ curl "http://localhost:5050/api/v1/auth/verify?token=<real token copied from the
 **Result:** PASS — email delivered for real via Brevo, and the real token from that email correctly verified: `200 {"verified":true}`, DB `email_verified` confirmed `t`. Full register → email → verify flow now proven end-to-end with no synthetic shortcuts.
 
 **Notes:** Stack torn down (`docker compose down`) after verification. Task 12 fully closed, no open follow-ups.
+
+---
+
+## 2026-08-19 — `POST /auth/login` + JWT issuance, plus strict-tier rate limiting
+
+**Context:** Phase 2, Task 13. Added `loginUser()` to `authService.js`, `login` controller, and `backend/src/middleware/rateLimit.js` (strict tier, 5/min/IP per `docs/security.md`) applied to both `/register` and `/login`. JWT payload is `{ userId, role }`, 1h expiry, per `docs/security.md`.
+
+**Bug caught during testing:** initial `rateLimit.js` exported one shared limiter *instance* reused on both routes, so register and login traffic counted against the same IP bucket — a login lockout would also block registration and vice versa. `docs/security.md`'s tier table lists both endpoints under "Strict" as separate rows, which reads as 5/min **per endpoint**, not a combined budget. Fixed by making `strictLimiter` a factory function, called once per route, giving each its own independent limiter state.
+
+**Test 1 — valid login (verified user):**
+```bash
+curl -X POST http://localhost:5050/api/v1/auth/login -d '{"email":"...","password":"password123"}'
+```
+**Result:** PASS — `200 {"token": "...", "user": {"id","name","role"}}`, matches `docs/api.md` response shape.
+
+**Test 2 — wrong password:**
+**Result:** PASS — `401 {"error":{"message":"Invalid email or password","code":"INVALID_CREDENTIALS"}}`.
+
+**Test 3 — nonexistent email (checklist item: "confirm no user detail leaked in error message"):**
+**Result:** PASS — identical `401 INVALID_CREDENTIALS` response as Test 2, no distinction between "wrong password" and "no such user".
+
+**Test 4 — login attempt before email verification:**
+```bash
+# register a fresh user, don't verify, then:
+curl -X POST http://localhost:5050/api/v1/auth/login -d '{"email":"unverified@test.com","password":"password123"}'
+```
+**Result:** PASS — `403 {"error":{"message":"Please verify your email before logging in","code":"EMAIL_NOT_VERIFIED"}}`.
+
+**Test 5 — rate limit, 6+ requests in a minute (checklist item):**
+```bash
+for i in 1 2 3 4 5 6 7; do curl -X POST http://localhost:5050/api/v1/auth/login -d '...wrong password...'; done
+```
+**Result:** PASS (after the shared-instance bug was fixed and retested with fresh state) — requests 1-5 returned `401`, requests 6-7 returned `429`. `RateLimit`/`RateLimit-Policy`/`Retry-After` headers present and correct (`5-in-1min`).
+
+**Test 6 — register unaffected by login's exhausted rate limit (confirms the fix):**
+**Result:** PASS — `POST /register` returned `201` immediately after login's limiter was fully exhausted, confirming independent per-route buckets.
+
+**Notes:** Stack torn down (`docker compose down`) after verification. Server remained healthy (`docker compose ps`) throughout, including through the 429 flood.
