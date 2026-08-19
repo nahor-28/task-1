@@ -34,6 +34,17 @@ export async function getAssignment(id) {
   return rows[0] ?? null;
 }
 
+async function getOwnedAssignment(id, requesterId) {
+  const existing = await getAssignment(id);
+  if (!existing) {
+    return { error: 'NOT_FOUND' };
+  }
+  if (existing.created_by !== requesterId) {
+    return { error: 'FORBIDDEN' };
+  }
+  return { assignment: existing };
+}
+
 const UPDATABLE_COLUMNS = {
   title: 'title',
   description: 'description',
@@ -42,17 +53,12 @@ const UPDATABLE_COLUMNS = {
 };
 
 export async function updateAssignment(id, requesterId, updates) {
-  const existing = await getAssignment(id);
-  if (!existing) {
-    return { error: 'NOT_FOUND' };
-  }
-  if (existing.created_by !== requesterId) {
-    return { error: 'FORBIDDEN' };
-  }
+  const owned = await getOwnedAssignment(id, requesterId);
+  if (owned.error) return owned;
 
   const columns = Object.keys(updates).filter((key) => key in UPDATABLE_COLUMNS);
   if (columns.length === 0) {
-    return { assignment: existing };
+    return { assignment: owned.assignment };
   }
 
   const setClause = columns.map((key, i) => `${UPDATABLE_COLUMNS[key]} = $${i + 2}`).join(', ');
@@ -64,4 +70,28 @@ export async function updateAssignment(id, requesterId, updates) {
     [id, ...values],
   );
   return { assignment: rows[0] };
+}
+
+export async function deleteAssignment(id, requesterId) {
+  const owned = await getOwnedAssignment(id, requesterId);
+  if (owned.error) return owned;
+
+  const { rows } = await pool.query(
+    'SELECT 1 FROM submissions WHERE assignment_id = $1 LIMIT 1',
+    [id],
+  );
+  if (rows.length > 0) {
+    return { error: 'HAS_SUBMISSIONS' };
+  }
+
+  await pool.query('DELETE FROM assignments WHERE id = $1', [id]);
+  return { success: true };
+}
+
+export async function setAttachment(id, requesterId, attachmentUrl) {
+  const owned = await getOwnedAssignment(id, requesterId);
+  if (owned.error) return owned;
+
+  await pool.query('UPDATE assignments SET attachment_url = $1 WHERE id = $2', [attachmentUrl, id]);
+  return { attachmentUrl };
 }
