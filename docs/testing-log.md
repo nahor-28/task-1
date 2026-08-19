@@ -400,3 +400,39 @@ for i in 1 2 3 4 5 6 7; do curl -X POST http://localhost:5050/api/v1/auth/login 
 **Result:** PASS — `POST /register` returned `201` immediately after login's limiter was fully exhausted, confirming independent per-route buckets.
 
 **Notes:** Stack torn down (`docker compose down`) after verification. Server remained healthy (`docker compose ps`) throughout, including through the 429 flood.
+
+---
+
+## 2026-08-19 — Auth middleware (`requireAuth`, `requireRole`) + `GET /users/me`
+
+**Context:** Phase 2, Task 14. Added `backend/src/middleware/auth.js` (`requireAuth` verifies JWT from `Authorization: Bearer <token>`, attaches `req.user = { id, role }`; `requireRole(...roles)` factory for route-level role checks). `GET /users/me` added alongside it (documented in `docs/api.md`) as the minimal protected route needed to actually exercise the middleware — untested middleware isn't verified. `requireAuth` also rejects any token carrying a `purpose` claim, so an email-verification token can't be replayed as an access token (mirrors the reverse check already in `verifyEmail`).
+
+**Test 1 — valid token:**
+```bash
+TOKEN=$(login response .token)
+curl http://localhost:5050/api/v1/users/me -H "Authorization: Bearer $TOKEN"
+```
+**Result:** PASS — `200 { id, name, email, role }`.
+
+**Test 2 — no token (checklist item):**
+**Result:** PASS — `401 UNAUTHENTICATED`.
+
+**Test 3 — malformed header (no `Bearer` prefix):**
+**Result:** PASS — `401 UNAUTHENTICATED`.
+
+**Test 4 — garbage/invalid token:**
+**Result:** PASS — `401 UNAUTHENTICATED`.
+
+**Test 5 — expired token (checklist item):**
+```bash
+# signed with expiresIn: -10 (already expired)
+```
+**Result:** PASS — `401 UNAUTHENTICATED`.
+
+**Test 6 — verification token replayed as an access token:**
+```bash
+# a validly-signed { userId, purpose: 'email_verification' } JWT
+```
+**Result:** PASS — `401 UNAUTHENTICATED` — confirms the `purpose` claim check blocks cross-use of token types in both directions (Task 12 already confirmed the reverse: an access-shaped token can't be used to verify email).
+
+**Notes:** Stack torn down (`docker compose down`) after verification. `requireRole` is written but not yet exercised by a real route — no role-restricted endpoint exists until educator-only assignment routes and student-only group routes are built in later phases. Will be covered implicitly then; flagging here rather than leaving it silently untested.
