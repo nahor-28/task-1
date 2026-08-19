@@ -733,3 +733,53 @@ SELECT count(*) FROM submissions WHERE assignment_id = '<id>';
 **Result:** PASS — a group member sees the assignment their group was targeted with; educator's own-assignments list is unaffected.
 
 **Notes:** Stack torn down (`docker compose down`) after verification. Ran into the `/auth/login` strict rate limiter twice more mid-run (same as Phase 4 — expected, tiered rate limiting doing its job) and waited out the 60s window each time rather than working around it. **Phase 5 (assignment targeting + submissions fan-out) is now fully tested.** Next up per the build order: Phase 6 (student two-step submission).
+
+---
+
+## 2026-08-19 — Phase 6: `GET /submissions`, `GET /submissions/mine`, two-step submit/confirm
+
+**Context:** Phase 6 — the last piece of core CRUD before dashboards. `submissionService.js` follows the same ownership-check pattern as assignments/groups: `getOwnedSubmission()` checks the row exists and `student_id` matches the requester before either state-transition endpoint runs. State transitions are guarded by current status per `docs/api.md` (`submit` requires `not_submitted`, `confirm` requires `pending_confirmation`) — matches the two-step design in `CLAUDE.md` (not collapsed to one step). Added `validateQuery` to `middleware/validate.js` (one-line addition to the existing `makeValidator` factory — `GET /submissions` and `/submissions/mine` are the first query-param routes in the app) since `assignmentId` is a query param, not a path param, per the API's query-param convention for non-CRUD reads. Reused the 3-member fan-out assignment (`34d96894-...`) from the Phase 5 test run.
+
+**Test 1 — `GET /submissions/mine` before any submission action (checklist item):**
+**Result:** PASS — `200 {"status":"not_submitted","submitted_at":null,"confirmed_at":null}`.
+
+**Test 2 — non-owner student attempts `submit` on someone else's submission:**
+**Result:** PASS — `403 FORBIDDEN`.
+
+**Test 3 — `confirm` attempted before `submit` (skip step 1, checklist item):**
+**Result:** PASS — `409 INVALID_STATE`.
+
+**Test 4 — step 1, `submit` (checklist item — "Yes, I have submitted"):**
+**Result:** PASS — `200 {"status":"pending_confirmation"}`; `submitted_at` set.
+
+**Test 5 — `submit` again while already `pending_confirmation` (checklist item):**
+**Result:** PASS — `409 INVALID_STATE`.
+
+**Test 6 — step 2, `confirm` (checklist item):**
+**Result:** PASS — `200 {"status":"confirmed"}`; `confirmed_at` set, `submitted_at` unchanged from step 1.
+
+**Test 7 — `confirm` again while already `confirmed`:**
+**Result:** PASS — `409 INVALID_STATE`.
+
+**Test 8 — owning educator `GET /submissions?assignmentId=` reflects the state changes:**
+**Result:** PASS — `200`, the confirmed student shows `status: "confirmed"` with both timestamps; the other two group members remain `not_submitted`.
+
+**Test 9 — non-owner educator `GET /submissions` (checklist item):**
+**Result:** PASS — `403 FORBIDDEN`. (Caught the shared `FORBIDDEN` error copy wrongly read "You do not own this submission" in this assignment-ownership context — fixed to a generic "Forbidden" message before finalizing, since the same error code covers both assignment-ownership and submission-ownership checks.)
+
+**Test 10 — student attempts `GET /submissions` (educator-only route):**
+**Result:** PASS — `403 FORBIDDEN` via `requireRole`.
+
+**Test 11 — educator attempts `GET /submissions/mine` (student-only route):**
+**Result:** PASS — `403 FORBIDDEN` via `requireRole`.
+
+**Test 12 — `submit` on a nonexistent submission id:**
+**Result:** PASS — `404 SUBMISSION_NOT_FOUND`.
+
+**Test 13 — unauthenticated `submit`:**
+**Result:** PASS — `401 UNAUTHENTICATED`.
+
+**Test 14 — `GET /submissions` for a nonexistent `assignmentId`:**
+**Result:** PASS — `404 ASSIGNMENT_NOT_FOUND`.
+
+**Notes:** Stack torn down (`docker compose down`) after verification. `nodemon` picked up the `FORBIDDEN` message fix live inside the running container, no rebuild needed — re-verified test 9 after the fix. **Phase 6 (two-step submission) is now fully tested — all of core CRUD (Phases 1–6) is complete.** Next up per the build order: Phase 7 (read-only dashboards, both roles).
