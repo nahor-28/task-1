@@ -6,9 +6,11 @@ function mapSubmission(row) {
     id: row.id,
     studentId: row.student_id,
     studentName: row.student_name,
+    groupId: row.group_id,
     status: row.status,
     submittedAt: row.submitted_at,
     confirmedAt: row.confirmed_at,
+    gradedAt: row.graded_at,
   };
 }
 
@@ -22,7 +24,7 @@ export async function listForAssignment(assignmentId, requesterId) {
   if (assignment.created_by !== requesterId) return { error: 'FORBIDDEN' };
 
   const { rows } = await pool.query(
-    `SELECT s.student_id, u.name AS student_name, s.status, s.submitted_at, s.confirmed_at
+    `SELECT s.id, s.student_id, u.name AS student_name, s.group_id, s.status, s.submitted_at, s.confirmed_at, s.graded_at
      FROM submissions s JOIN users u ON u.id = s.student_id
      WHERE s.assignment_id = $1 ORDER BY u.name`,
     [assignmentId],
@@ -32,7 +34,7 @@ export async function listForAssignment(assignmentId, requesterId) {
 
 export async function getMine(assignmentId, studentId) {
   const { rows } = await pool.query(
-    `SELECT id, status, submitted_at, confirmed_at
+    `SELECT id, group_id, status, submitted_at, confirmed_at, graded_at
      FROM submissions WHERE assignment_id = $1 AND student_id = $2`,
     [assignmentId, studentId],
   );
@@ -41,7 +43,10 @@ export async function getMine(assignmentId, studentId) {
 }
 
 async function getOwnedSubmission(id, studentId) {
-  const { rows } = await pool.query('SELECT id, student_id, status FROM submissions WHERE id = $1', [id]);
+  const { rows } = await pool.query(
+    'SELECT id, student_id, group_id, status FROM submissions WHERE id = $1',
+    [id],
+  );
   const existing = rows[0];
   if (!existing) return { error: 'SUBMISSION_NOT_FOUND' };
   if (existing.student_id !== studentId) return { error: 'FORBIDDEN' };
@@ -64,12 +69,33 @@ export async function submit(id, studentId) {
 export async function confirm(id, studentId) {
   const owned = await getOwnedSubmission(id, studentId);
   if (owned.error) return owned;
+  // Group submissions are swept by the leader's confirm-all instead of self-confirm.
+  if (owned.submission.group_id !== null) return { error: 'NOT_INDIVIDUAL' };
   if (owned.submission.status !== 'pending_confirmation') return { error: 'INVALID_STATE' };
 
   const { rows } = await pool.query(
-    `UPDATE submissions SET status = 'confirmed', confirmed_at = now()
+    `UPDATE submissions SET status = 'waiting_for_grading', confirmed_at = now()
      WHERE id = $1 RETURNING status`,
     [id],
   );
   return { status: rows[0].status };
+}
+
+export async function grade(id, requesterId) {
+  const { rows } = await pool.query(
+    `SELECT s.status, a.created_by
+     FROM submissions s JOIN assignments a ON a.id = s.assignment_id
+     WHERE s.id = $1`,
+    [id],
+  );
+  const submission = rows[0];
+  if (!submission) return { error: 'SUBMISSION_NOT_FOUND' };
+  if (submission.created_by !== requesterId) return { error: 'FORBIDDEN' };
+  if (submission.status !== 'waiting_for_grading') return { error: 'INVALID_STATE' };
+
+  const { rows: updated } = await pool.query(
+    `UPDATE submissions SET status = 'graded', graded_at = now() WHERE id = $1 RETURNING status`,
+    [id],
+  );
+  return { status: updated[0].status };
 }

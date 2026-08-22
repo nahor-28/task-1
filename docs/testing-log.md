@@ -1007,3 +1007,29 @@ INSERT INTO submissions (..., status) VALUES (..., 'confirmed');  -- old 3-state
 **Result:** PASS — all 7 checks behaved as designed. Did not re-test the non-enrolled-student FORBIDDEN path here (registration for a fresh outsider account hit the same rate limiter mid-run) since it exercises the identical `isEnrolled` check already verified for courses (Task 3) and assignments (Task 4) — judged redundant rather than worth a 60s rate-limit wait.
 
 **Cleanup:** `TRUNCATE` all test rows, deleted local token scratch file, `docker compose down`.
+
+---
+
+## 2026-08-22 — Course-centric refactor, Task 6: submissions backend (confirm terminal status, grading, leader confirm-all)
+
+**Context:** Same branch. `submit()` in `submissionService.js` was already correct for the new model (not_submitted -> pending_confirmation) and needed no change. Rewrote `confirm()` to land on `waiting_for_grading` instead of the old `confirmed` (removed from the enum in Task 2) and to reject group-assignment submissions (`group_id IS NOT NULL`) with a new `NOT_INDIVIDUAL` error - those are swept by the leader instead. Added `grade()` (educator-only, `waiting_for_grading` -> `graded`). Added `confirmAllForGroup()` to `groupService.js` and recreated `routes/groups.js` (removed in Task 5 since nothing needed a top-level `/groups` route yet) to host `POST /groups/:id/confirm-all`, per `docs/architecture.md` flow 3.
+
+**Setup:** `docker compose up -d --build`, `localhost:5050`. Registered 1 educator + 2 students, verified via `psql`, logged in for real tokens.
+
+**Tests run (individual path, all via curl against `localhost:5050/api/v1/submissions`):**
+1. `PATCH /:id/confirm` before submit → 409 INVALID_STATE. `PATCH /:id/grade` before confirm → 409 INVALID_STATE.
+2. `PATCH /:id/submit` → 200, `pending_confirmation`.
+3. A different student tries to confirm the first student's submission → 403 FORBIDDEN (ownership check).
+4. Owning student confirms → 200, `waiting_for_grading` (not the old `confirmed`).
+5. Educator grades → 200, `graded`. Grading again → 409 INVALID_STATE (no double-grading).
+
+**Tests run (group path, via curl against `localhost:5050/api/v1/submissions` and `/api/v1/groups`):**
+6. Group assignment (`numGroups=1`) published; identified the randomly-seeded leader from `GET /assignments/:id/groups`, had the other student join.
+7. Member submits → `pending_confirmation`. Member tries to self-confirm → 409 NOT_INDIVIDUAL (group submissions only move via leader confirm-all).
+8. Non-leader member tries `POST /groups/:id/confirm-all` → 403 NOT_LEADER.
+9. Leader calls confirm-all while **their own row is still `not_submitted`** (never submitted) → 200, `{updatedCount: 2, notSubmittedStudentIds: [<leader's id>]}` — proceeded anyway per the non-blocking design, swept both rows (leader's own included) to `waiting_for_grading` in one statement. `psql` check confirmed both rows `waiting_for_grading` with `confirmed_at` set. Repeat confirm-all → `{updatedCount: 0}` (nothing left to sweep).
+10. Educator graded both group submissions → `graded`; final `psql` count check: 2 rows, both `graded`.
+
+**Result:** PASS — all 10 checks behaved as designed; no code changes needed after the first pass.
+
+**Cleanup:** `TRUNCATE` all test rows, deleted local token scratch file, `docker compose down`.

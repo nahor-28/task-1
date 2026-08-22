@@ -95,3 +95,30 @@ export async function joinGroup(assignmentId, groupId, studentId) {
     client.release();
   }
 }
+
+export async function confirmAllForGroup(groupId, requesterId) {
+  const { rows: groupRows } = await pool.query('SELECT id FROM groups WHERE id = $1', [groupId]);
+  if (!groupRows[0]) return { error: 'GROUP_NOT_FOUND' };
+
+  const { rows: membershipRows } = await pool.query(
+    'SELECT role FROM group_members WHERE group_id = $1 AND student_id = $2',
+    [groupId, requesterId],
+  );
+  if (!membershipRows[0] || membershipRows[0].role !== 'leader') {
+    return { error: 'NOT_LEADER' };
+  }
+
+  const { rows: beforeUpdate } = await pool.query(
+    "SELECT student_id FROM submissions WHERE group_id = $1 AND status = 'not_submitted'",
+    [groupId],
+  );
+
+  const { rows: updated } = await pool.query(
+    `UPDATE submissions SET status = 'waiting_for_grading', confirmed_at = now()
+     WHERE group_id = $1 AND status IN ('not_submitted', 'pending_confirmation')
+     RETURNING student_id`,
+    [groupId],
+  );
+
+  return { updatedCount: updated.length, notSubmittedStudentIds: beforeUpdate.map((r) => r.student_id) };
+}
