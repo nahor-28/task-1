@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { api } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -6,172 +7,110 @@ import { useConfirm } from '../../hooks/useConfirm.js';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
 
 export function Groups() {
+  const { id } = useParams();
   const { token, user } = useAuth();
   const toast = useToast();
   const [groups, setGroups] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [allStudents, setAllStudents] = useState([]);
-  const [newGroupName, setNewGroupName] = useState('');
-  const [memberId, setMemberId] = useState('');
+  const [error, setError] = useState('');
   const { confirm, dialogProps } = useConfirm();
 
-  async function loadGroups() {
-    const list = await api.get('/groups/mine', token);
-    setGroups(list);
+  async function load() {
+    try {
+      setGroups(await api.get(`/assignments/${id}/groups`, token));
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   useEffect(() => {
-    loadGroups().catch((err) => toast.error(err.message));
-    api.get('/users?role=student', token).then(setAllStudents).catch((err) => toast.error(err.message));
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [id, token]);
 
-  async function openGroup(id) {
-    setMemberId('');
+  async function join(groupId) {
     try {
-      const detail = await api.get(`/groups/${id}`, token);
-      setSelected(detail);
+      await api.post(`/assignments/${id}/groups/${groupId}/join`, undefined, token);
+      toast.success('Joined group.');
+      await load();
     } catch (err) {
       toast.error(err.message);
     }
   }
 
-  async function createGroup() {
+  async function confirmAll(groupId) {
     try {
-      await api.post('/groups', { name: newGroupName }, token);
-      toast.success('Group created.');
-      setNewGroupName('');
-      await loadGroups();
+      const result = await api.post(`/groups/${groupId}/confirm-all`, undefined, token);
+      if (result.notSubmittedStudentIds?.length > 0) {
+        toast.error(`Confirmed anyway — ${result.notSubmittedStudentIds.length} member(s) had not submitted.`);
+      } else {
+        toast.success('All submissions confirmed.');
+      }
+      await load();
     } catch (err) {
       toast.error(err.message);
     }
   }
 
-  async function addMember() {
-    try {
-      await api.post(`/groups/${selected.id}/members`, { studentId: memberId }, token);
-      toast.success('Member added.');
-      setMemberId('');
-      await openGroup(selected.id);
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
+  if (error) return <p className="text-sm text-red-600">{error}</p>;
 
-  async function removeMember(studentId) {
-    try {
-      await api.del(`/groups/${selected.id}/members/${studentId}`, token);
-      toast.success('Member removed.');
-      await openGroup(selected.id);
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
-
-  async function deleteGroup() {
-    try {
-      await api.del(`/groups/${selected.id}`, token);
-      toast.success('Group deleted.');
-      setSelected(null);
-      await loadGroups();
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
-
-  const isLeader = selected?.members?.find((m) => m.id === user.id)?.role === 'leader';
-  const nonMembers = allStudents.filter(
-    (s) => !selected?.members?.some((m) => m.id === s.id),
-  );
-  const memberName = nonMembers.find((s) => s.id === memberId)?.name;
+  const myGroup = groups.find((g) => g.members.some((m) => m.id === user.id));
+  const myRole = myGroup?.members.find((m) => m.id === user.id)?.role;
 
   return (
-    <div className="grid grid-cols-2 gap-6">
+    <div>
       <ConfirmDialog {...dialogProps} />
-      <div>
-        <h1 className="text-lg font-semibold text-gray-900 mb-4">Your Groups</h1>
-        <ul className="space-y-2 mb-6">
-          {groups.map((g) => (
-            <li key={g.id}>
-              <button
-                onClick={() => openGroup(g.id)}
-                className="w-full text-left bg-white border border-gray-200 rounded-lg p-3 hover:border-gray-400"
-              >
-                {g.name}
-              </button>
-            </li>
-          ))}
-        </ul>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            confirm('Create group?', `Create "${newGroupName}"?`, createGroup);
-          }}
-          className="flex gap-2"
-        >
-          <input
-            required
-            placeholder="New group name"
-            value={newGroupName}
-            onChange={(e) => setNewGroupName(e.target.value)}
-            className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm"
-          />
-          <button type="submit" className="bg-gray-900 text-white text-sm rounded px-4 py-2">Create</button>
-        </form>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-lg font-semibold text-gray-900">Groups</h1>
+        <Link to={`/student/assignments/${id}`} className="text-sm text-gray-600 underline">
+          Back to assignment
+        </Link>
       </div>
 
-      {selected && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-medium text-gray-900">{selected.name}</h2>
-            {isLeader && (
-              <button
-                onClick={() => confirm('Delete group?', `Delete "${selected.name}" and remove all its members? This cannot be undone.`, deleteGroup)}
-                className="text-xs text-red-600"
-              >
-                Delete group
-              </button>
-            )}
-          </div>
-          <ul className="space-y-1 mb-4">
-            {selected.members.map((m) => (
-              <li key={m.id} className="flex items-center justify-between text-sm text-gray-700">
-                <span>{m.name}{m.role === 'leader' ? ' (leader)' : ''}</span>
-                {isLeader && m.role !== 'leader' && (
-                  <button
-                    onClick={() => confirm('Remove member?', `Remove ${m.name} from this group?`, () => removeMember(m.id))}
-                    className="text-xs text-red-600"
-                  >
-                    Remove
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-          {isLeader && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                confirm('Add member?', `Add ${memberName} to this group?`, addMember);
-              }}
-              className="flex gap-2"
+      {myGroup && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+          <p className="text-sm text-gray-800 mb-2">
+            You're in <span className="font-medium">{myGroup.name}</span>
+            {myRole === 'leader' ? ' as leader' : ''}.
+          </p>
+          {myRole === 'leader' && (
+            <button
+              onClick={() =>
+                confirm(
+                  'Confirm all submissions?',
+                  "This confirms every member's submission, including anyone who hasn't submitted yet. This cannot be undone.",
+                  () => confirmAll(myGroup.id),
+                )
+              }
+              className="bg-gray-900 text-white text-sm rounded px-4 py-2"
             >
-              <select
-                required
-                value={memberId}
-                onChange={(e) => setMemberId(e.target.value)}
-                className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm"
-              >
-                <option value="" disabled>Select a student</option>
-                {nonMembers.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-              <button type="submit" className="bg-gray-900 text-white text-sm rounded px-4 py-2">Add</button>
-            </form>
+              Confirm all submissions
+            </button>
           )}
         </div>
       )}
+
+      <ul className="space-y-2">
+        {groups.map((g) => (
+          <li key={g.id} className="bg-white border border-gray-200 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="font-medium text-gray-900">{g.name}</p>
+              {!myGroup && (
+                <button onClick={() => join(g.id)} className="bg-gray-900 text-white text-sm rounded px-3 py-1">
+                  Join
+                </button>
+              )}
+            </div>
+            <ul className="text-sm text-gray-600">
+              {g.members.map((m) => (
+                <li key={m.id}>
+                  {m.name}
+                  {m.role === 'leader' ? ' (leader)' : ''}
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -13,9 +13,7 @@ export function Layout() {
           {user && (
             <div className="flex gap-4 text-sm text-gray-600">
               <Link to={`${base}/dashboard`} className="hover:text-gray-900">Dashboard</Link>
-              {user.role === 'student' && (
-                <Link to="/student/groups" className="hover:text-gray-900">Groups</Link>
-              )}
+              <Link to={`${base}/courses`} className="hover:text-gray-900">Courses</Link>
               {user.role === 'educator' && (
                 <Link to="/educator/assignments" className="hover:text-gray-900">Assignments</Link>
               )}

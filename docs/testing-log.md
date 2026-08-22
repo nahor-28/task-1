@@ -1053,3 +1053,35 @@ INSERT INTO submissions (..., status) VALUES (..., 'confirmed');  -- old 3-state
 **Result:** PASS — all 4 checks behaved as designed; no code changes needed after the first pass.
 
 **Cleanup:** `TRUNCATE` all test rows, deleted local token scratch file, `docker compose down`.
+
+---
+
+## 2026-08-22 — Course-centric refactor, Task 9: frontend routes & data-calling (browser-tested)
+
+**Context:** Same branch. Rewired the frontend for the new backend (Tasks 2-8): new routes/pages for course list/detail/enroll, assignment create with type+draft/publish, group self-assembly browse/join, leader confirm-all, and professor grade-per-submission. Updated `App.jsx` routing, `Layout.jsx` nav (dropped the old top-level "Groups" link — groups are assignment-scoped now, reached from an assignment's detail page). No visual redesign, reused existing Tailwind classes/components (`ConfirmDialog`, `useConfirm`, `ToastContext`, `AttachmentViewer`) throughout, per the task's explicit scope.
+
+New pages: `student/Courses.jsx` (browse+enroll+"my courses"), `student/CourseDetail.jsx` (roster+assignments, read-only), `educator/Courses.jsx` (list+create+active toggle), `educator/CourseDetail.jsx` (roster+assignments+"new assignment" link with `?courseId=` prefill).
+
+Rewritten: `student/Groups.jsx` (was manual create/add/remove-member; now assignment-scoped self-assembly - list open groups, join, leader confirm-all with the non-blocking-warning toast), `student/AssignmentDetail.jsx` (new 4-state status labels, group-vs-individual branching: hides self-confirm for group submissions, shows a join-a-group prompt when no submission row exists yet), `educator/AssignmentDetail.jsx` (dropped the dead assign-to-target section entirely, replaced with a status badge + Publish button + per-row Grade button), `educator/AssignmentForm.jsx` (course select, type select, conditional `numGroups` field, draft-vs-published guardrail disabling type/numGroups once published), `educator/EducatorDashboard.jsx` (new courses+per-assignment-breakdown shape), `educator/Reports.jsx` (dropped the group-lookup mode entirely - `GET /groups` list-all no longer exists since groups are ephemeral/assignment-scoped, so there's no way to enumerate them for a picker; kept the still-valid per-student lookup).
+
+**Pre-check:** `pnpm build` - clean, no errors, before any browser testing.
+
+**Browser testing note:** Root `CLAUDE.md` mandates gstack's `/browse` skill for all web browsing and forbids raw `mcp__claude-in-chrome__*` tools; this project's `CLAUDE.md` restricts skill invocation to `ponytail` only unless explicitly named - a genuine conflict. Asked the user directly; they chose `/browse` (satisfies both: explicit naming for this project, matches the root policy).
+
+**Setup:** `docker compose up -d --build` (postgres+backend, `localhost:5050`) + `pnpm dev` (Vite, `localhost:5173`, proxies `/api` to 5050). Registered 1 educator + 2 students via curl, verified via `psql`.
+
+**Tests run (live in Chromium via `/browse`, both roles, real login sessions):**
+1. Educator: create course -> appears in "Your Courses" and on course detail. "New assignment" from course detail correctly pre-fills `courseId`.
+2. Create individual assignment as draft -> Publish button shows, confirm dialog names the impact ("creates a submission for every enrolled student"). Published with 0 enrolled students at the time -> correctly 0 submissions, Publish button correctly disappears once published.
+3. Student: browse courses shows the new course: enroll -> moves from "Browse" to "Your Courses", disappears from browse. Dashboard (`GET /assignments`) shows the published assignment even before any submission row exists for this student (list doesn't depend on submissions).
+4. **Bug found and fixed live:** opened the individual assignment as a student who enrolled *after* it was published (so no fan-out row exists) - the page rendered the title/description but silently dropped the rest with no error, because `if (!assignment) return loadError ? ... : null` only checked `loadError` when `assignment` was null, and `assignment` was in fact set. Fixed: `loadError` now takes priority regardless of `assignment` state, and a missing submission on an individual (non-group) assignment renders an explanatory message instead of erroring, mirroring the existing group not-yet-joined UX. Verified via reload after the fix.
+5. Educator published a second individual assignment to the same course *after* the student was already enrolled -> fan-out worked, "Grade" button correctly withheld until `waiting_for_grading`.
+6. Student: checkbox submit -> `Pending confirmation` + Confirm button appears; clicked through the `ConfirmDialog` -> `Waiting for grading`. (Note: the app's own `<dialog>`-based `ConfirmDialog` isn't a native browser dialog, so `browse`'s `dialog-accept` doesn't apply to it - clicked the rendered Confirm button directly instead, via a `dialog button.bg-gray-900` CSS selector after an `@ref` click reported "matched multiple elements".)
+7. Educator: Grade button on the `waiting_for_grading` row -> `graded`. Dashboard breakdown and per-student `/reports` drill-down both reflected the change correctly (`Graded 1`, `completionRate: 100%`).
+8. Group assignment (`numGroups=1`, 2 enrolled students): published -> confirm dialog correctly named "randomly forms 1 group(s)". One student randomly seeded as leader. Second (non-leader) student: assignment detail showed "Browse and join a group" (no submission yet) -> group listing page showed the leader -> joined -> group listing updated to show both members, "View your group" now shown from assignment detail.
+9. Joined member submitted (checkbox) -> `Pending confirmation` + "Waiting for your group leader to confirm all submissions" message, **no self-confirm button shown** (`NOT_INDIVIDUAL` backend guard has a matching frontend guard).
+10. Leader (who never submitted their own row) called confirm-all -> non-blocking warning toast correctly reported "1 member(s) had not submitted", both rows including the leader's own swept to `waiting_for_grading` - confirmed on the educator's assignment detail page (both rows `waiting_for_grading` with Grade buttons).
+
+**Result:** PASS after one live fix (item 4). All 10 flows behaved as designed on the second pass.
+
+**Cleanup:** Stopped the `browse` daemon, killed the Vite dev server, `TRUNCATE`d all test rows, `docker compose down` - no lingering processes (verified via `ps aux`).

@@ -29,7 +29,7 @@ export function Assignments() {
               className="block bg-white border border-gray-200 rounded-lg p-4 hover:border-gray-400"
             >
               <p className="font-medium text-gray-900">{a.title}</p>
-              <p className="text-sm text-gray-500">Due {new Date(a.dueDate).toLocaleDateString()}</p>
+              <p className="text-sm text-gray-500">Due {new Date(a.dueDate).toLocaleDateString()} · {a.status}</p>
             </Link>
           </li>
         ))}
