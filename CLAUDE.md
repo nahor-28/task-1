@@ -65,22 +65,25 @@ Reason: zero shared code between the two apps. Workspace tooling was considered 
 
 ## Database
 - Single merged `users` table with `role` enum ('student' | 'educator'). Not two separate tables.
-- 6 tables total: users, groups, group_members, assignments, assignment_targets, submissions.
+- 7 tables total: users, courses, course_enrollments, groups, group_members, assignments, submissions. `assignment_targets` is dropped (see below).
 - No standalone `reports` table — reports are SQL views/aggregate queries over `submissions`.
-- `assignment_targets` is polymorphic (student OR group per row, enforced by CHECK constraint) — avoids UNION queries on read.
-- `submissions` is always per-student, even for group-targeted assignments (fan-out on assignment creation, one row per group member). This is required for progress-bar math (numerator/denominator per student).
+- Courses are the top-level container: professors create courses, students self-enroll via `course_enrollments`, assignments belong to a course (`assignments.course_id`).
+- `assignment_targets` is **dropped**. It existed to answer "who is this assignment for," but that's now always derivable from data that exists anyway: `course_enrollments` for individual assignments, `groups`/`group_members` for group assignments. A separate targeting table would have been a second source of truth that could drift.
+- Groups are now **assignment-scoped, not reusable** — `groups.assignment_id` is NOT NULL. A group only exists in the context of one group-type assignment. Publishing a group assignment randomly seeds `num_groups` leaders (one group each); other enrolled students self-assemble by browsing and joining an open group.
+- `submissions` is always per-student, even for group assignments (fan-out at publish time for leaders, at join time for joining members). This is required for progress-bar math (numerator/denominator per student). `submissions.group_id` (nullable) links group-assignment rows to their group.
 - `submissions.student_id` references `users` directly (not through `group_members`) — historical submission data survives if a student later leaves the group.
-- Two-step submission confirmation: `not_submitted` → `pending_confirmation` (on "Yes, I have submitted") → `confirmed` (on second confirm click). Matches brief exactly — do not collapse to one step.
+- Submission status is now a 4-state enum: `not_submitted` → `pending_confirmation` (on submit) → `waiting_for_grading` (individual self-confirm, or leader confirm-all sweep) → `graded` (professor marks graded, per row). This replaces the old 3-state (`not_submitted`/`pending_confirmation`/`confirmed`) enum — do not resurrect `confirmed` as a terminal state, grading is now the terminal state.
+- Leader confirm-all is non-blocking: it warns on any group member still `not_submitted` but proceeds anyway, sweeping every member row (leader's own included) to `waiting_for_grading` in one transaction. This is a stated, accepted behavior, not a bug to fix later.
 
 ## Explicit scope cuts — do not add back without discussion
 - Educator ID/document verification — not in brief, dropped.
 - Auto-complete-on-due-date via cron — brief only asks for tracking, not auto-closure.
-- Group invite accept/decline flow — deferred. MVP is direct-add by leader. If time permits post-MVP: add `status` column to `group_members` (pending/accepted/declined) and two new endpoints. Schema change is additive, not a rearchitecture.
+- Group invite accept/decline flow — superseded by self-assembly (student browses open groups and joins directly, no invite/approval step). The old "direct-add by leader" MVP note no longer applies now that groups are assignment-scoped and leader-seeded at publish time.
 - File storage via S3/R2 — using local disk (Docker volume in dev, Railway volume in prod) via multer instead, to avoid bucket/credential setup overhead.
 
 ## Locked design decisions (defaulted, confirmed by user)
-- Group permissions: leader-only can remove members or delete the group.
-- Assignment lifecycle: edit allowed anytime; delete blocked once any submission exists (must archive instead — archive mechanism TBD at implementation).
+- Group permissions: groups are assignment-scoped and leader-seeded at publish time (random selection from course enrollment); leader has sole confirm-all authority for the group. No manual create/delete/remove-member flow — that no longer applies now that groups aren't standalone.
+- Assignment lifecycle: draft-by-default, one-way publish (draft → published, no un-publish); edit allowed anytime; delete blocked once any submission exists (must archive instead — archive mechanism TBD at implementation).
 - Deployment topology: single Railway service, backend serves built frontend as static files.
 
 ## API conventions
