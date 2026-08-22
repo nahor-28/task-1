@@ -916,3 +916,50 @@ Deleted in one transaction, in FK-safe order (verified before commit): `assignme
 **Result:** PASS — 16 old users, 6 old groups, 13 old assignments, 7 stray `assignment_targets` removed. Remaining state confirmed clean: exactly 20 users (`browser.edu@test.com`, `browser.stu@test.com`, `educator1-3@seed.test`, `student1-15@seed.test`), 4 groups (Team Alpha, Team Beta, Browser Test Group, "team new"), 11 assignments, 48 `assignment_targets`, 52 `submissions` — all traceable to this session's users only.
 
 **Notes:** Docker stack (`task-1-postgres-1`, `task-1-backend-1`) and the Vite dev server (`localhost:5173`) were kept running throughout and are still up as of this entry — user is continuing manual browser testing. Stack will be torn down and this log updated once they confirm they're done.
+
+---
+
+## 2026-08-22 — Course-centric refactor, Task 2: migrations 009-016
+
+**Context:** `task-2-ui-ux-enhancements` branch, course-centric architecture refactor. Applied the 8 new migration files (courses, course_enrollments, assignments/groups/submissions alters, `assignment_targets` drop, `group_progress` rebuild) against a real Postgres instance before committing, per the project's "test constraints directly against Postgres" build-order convention. Backend/frontend not running for this check — postgres-only.
+
+**Setup:** `docker compose up -d postgres`, then `docker compose run --rm backend pnpm migrate` (existing `pgdata` volume already had 001-008 applied from prior sessions, so this run only applied 009-016).
+
+**Test 1 — schema shape:** `\d` on each altered/new table — confirmed all new columns, CHECK constraints, FKs, and the rebuilt `group_progress` view matched `docs/schema.md` exactly. Confirmed `assignment_targets` no longer exists (`\dt assignment_targets` → not found).
+
+**Test 2 — constraint enforcement (expect failure):**
+```sql
+INSERT INTO assignments (..., type) VALUES (..., 'group');  -- no num_groups
+```
+**Result:** PASS — rejected by `assignments_group_requires_num_groups` CHECK.
+
+```sql
+INSERT INTO submissions (..., status) VALUES (..., 'confirmed');  -- old 3-state value
+```
+**Result:** PASS — rejected by `submissions_status_check` (new 4-state enum only).
+
+**Test 3 — group fan-out + `group_progress` view:** Inserted a course, enrollment, published group assignment (`num_groups=1`), one group with a leader `group_members` row, one `submissions` row (`group_id` set, `status='waiting_for_grading'`). Queried `group_progress` → `completion_rate = 0` (correct, none graded yet). Updated the row to `status='graded'` → re-queried → `completion_rate = 1`.
+**Result:** PASS.
+
+**Cleanup:** `TRUNCATE` all affected tables to clear test rows (schema kept, no data left behind), `docker compose down` (container + network removed, no lingering daemon).
+
+---
+
+## 2026-08-22 — Course-centric refactor, Task 3: courses backend (CRUD, self-enroll, detail)
+
+**Context:** Same branch. Added `backend/src/{routes,controllers,services}/courses.js` family (course CRUD for professors incl. active toggle, student self-enroll, "my courses" list, course detail with roster+assignments) and wired into `index.js`. Validated against the full stack (postgres + backend, `docker compose up -d --build`) via curl, going through the real register → DB-verify (bypassed Brevo, no `.env` read — just `UPDATE users SET email_verified = true` for the two test accounts) → login flow to get real JWTs, per the project's curl-testing convention.
+
+**Setup:** `docker compose up -d --build`, backend reachable at `localhost:5050` (`BACKEND_HOST_PORT` override, see 2026-08-19 entry). Registered `prof.course.test@test.com` (educator) and `stu.course.test@test.com` (student), verified both directly via `psql`, logged in via `POST /auth/login` for real tokens.
+
+**Tests run (all via curl against `localhost:5050/api/v1/courses`):**
+1. `POST /courses` as educator → 201, course created. As student → 403 FORBIDDEN. Missing `title` → 400 VALIDATION_ERROR.
+2. `GET /courses/mine` — educator sees the course they created; student sees `[]` before enrolling.
+3. `GET /courses` (browse) — student sees the active course; educator on the same route → 403 (student-only route).
+4. `GET /courses/:id` — student not yet enrolled → 403 NOT_ENROLLED. Owning educator → 200 with `roster: []`, `assignments: []`.
+5. `POST /courses/:id/enroll` — student → 201. Repeat call → 409 ALREADY_ENROLLED.
+6. `GET /courses/:id` after enrolling → 200, roster now includes the student. `GET /courses/mine` for that student now includes the course.
+7. `PUT /courses/:id` with `{"active": false}` as owning educator → 200, `active: false`. `GET /courses` (browse) afterward → `[]` (inactive course correctly excluded).
+
+**Result:** PASS — all 7 checks behaved as designed; no code changes needed after the first pass.
+
+**Cleanup:** `TRUNCATE` all test rows, deleted the local token scratch file, `docker compose down` (both containers + network removed).
