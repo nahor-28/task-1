@@ -21,52 +21,61 @@ Status codes used consistently: `200` success, `201` created, `400` validation e
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
 | GET | `/users/me` | Bearer | — | `200 { id, name, email, role }` | Current user profile. |
-| GET | `/users/search?email=` | Bearer | — | `200 [{ id, name, email }]` | Exact-email lookup. Used for group member add by email. |
-| GET | `/users?role=student\|educator` | Bearer | — | `200 [{ id, name, email }]` | Lists all users of a role, no school/subject scoping in MVP. Used to populate the assignment-targeting, reports-lookup, and group-member-add dropdowns instead of typing an email/ID. |
+| GET | `/users?role=student\|educator` | Bearer | — | `200 [{ id, name, email }]` | Lists all users of a role. Used to populate the reports-lookup dropdown. |
 
-## Groups
+## Courses
 
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
-| POST | `/groups` | Bearer (student) | `{ name }` | `201 { groupId }` | Creator becomes leader. |
-| GET | `/groups/:id` | Bearer | — | `200 { id, name, members: [...] }` | Ownership: member of group or educator. |
-| POST | `/groups/:id/members` | Bearer (leader) | `{ studentId }` | `201 { memberId }` | Direct-add, no accept/decline in MVP. |
-| DELETE | `/groups/:id/members/:studentId` | Bearer (leader) | — | `200 {}` | Leader-only. |
-| DELETE | `/groups/:id` | Bearer (leader) | — | `200 {}` | Leader-only. |
-| GET | `/groups/mine` | Bearer (student) | — | `200 [{ id, name }]` | Groups the current student belongs to. |
-| GET | `/groups` | Bearer (educator) | — | `200 [{ id, name }]` | All groups, for the reports-lookup dropdown. |
+| POST | `/courses` | Bearer (educator) | `{ title, description? }` | `201 { courseId }` | |
+| PUT | `/courses/:id` | Bearer (educator, owner) | `{ title?, description?, active? }` | `200 {...}` | `active: false` hides it from student browse without deleting. |
+| GET | `/courses/mine` | Bearer | — | `200 [{...}]` | Educator: courses they teach. Student: courses they're enrolled in. |
+| GET | `/courses` | Bearer (student) | — | `200 [{...}]` | Active courses, for browsing/enrollment. |
+| GET | `/courses/:id` | Bearer | — | `200 { ...course, roster: [...], assignments: [...] }` | Educator must own it; student must be enrolled. |
+| POST | `/courses/:id/enroll` | Bearer (student) | — | `201 {}` | `409` if already enrolled or course is inactive. |
 
 ## Assignments
 
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
-| POST | `/assignments` | Bearer (educator) | `{ title, description, dueDate, onedriveLink }` | `201 { assignmentId }` | |
+| POST | `/assignments` | Bearer (educator) | `{ courseId, title, description, dueDate, onedriveLink?, type: 'individual'\|'group', numGroups? }` | `201 { assignmentId }` | `numGroups` required when `type='group'`. Must own `courseId`. Draft by default. |
 | POST | `/assignments/:id/attachment` | Bearer (educator, owner) | multipart file | `200 { attachmentUrl }` | Multer, PDF/docx only, 10MB cap. |
-| PUT | `/assignments/:id` | Bearer (educator, owner) | `{ title?, description?, dueDate?, onedriveLink? }` | `200 {...}` | Edit allowed anytime. |
+| PUT | `/assignments/:id` | Bearer (educator, owner) | `{ title?, description?, dueDate?, onedriveLink?, type?, numGroups? }` | `200 {...}` | `type`/`numGroups` only take effect while `status='draft'` — silently ignored once published. |
 | DELETE | `/assignments/:id` | Bearer (educator, owner) | — | `200 {}` / `409` | Blocked (409) if any `submissions` row exists — archive instead. |
-| GET | `/assignments` | Bearer | — | `200 [{...}]` | Educator: assignments they created. Student: assignments targeted at them (individually or via group). |
-| GET | `/assignments/:id` | Bearer | — | `200 { ...full detail, attachmentUrl }` | |
-| POST | `/assignments/:id/assign` | Bearer (educator, owner) | `{ targetType: 'student' \| 'group', targetId }` | `201 { targetId }` | Single endpoint for both target types (not separate routes). Triggers submissions fan-out if targetType is 'group'. |
+| GET | `/assignments` | Bearer | — | `200 [{...}]` | Educator: assignments they created (draft + published). Student: published assignments in their enrolled courses. |
+| GET | `/assignments/:id` | Bearer | — | `200 { ...full detail, attachmentUrl }` | Educator must own it. Student: only if published and enrolled in its course (draft assignments 404 for students, not 403 — avoids leaking existence). |
+| POST | `/assignments/:id/publish` | Bearer (educator, owner) | — | `200 {...updated}` | `individual`: fans out one `submissions` row per enrolled student. `group`: randomly seeds `numGroups` leaders (one `groups` row + leader `submissions` row each). `409 ALREADY_PUBLISHED` / `409 NOT_ENOUGH_STUDENTS`. |
+| GET | `/assignments/:id/groups` | Bearer | — | `200 [{ id, name, createdAt, members: [...] }]` | Group-type, published assignments only. Educator must own it; student must be enrolled. |
+| POST | `/assignments/:id/groups/:groupId/join` | Bearer (student) | — | `201 {}` | Creates the joining student's `submissions` row. `409 ALREADY_IN_GROUP`. |
+
+## Groups
+
+| Method | Path | Auth | Body | Response | Notes |
+|---|---|---|---|---|---|
+| POST | `/groups/:id/confirm-all` | Bearer (student, leader) | — | `200 { updatedCount, notSubmittedStudentIds }` | Leader-only. Sweeps every member row (including the leader's own) to `waiting_for_grading`, even if some are still `not_submitted` — `notSubmittedStudentIds` reports who, but the sweep proceeds regardless. |
+
+Groups have no standalone CRUD — they're created only by publish (leader-seeded) or by a student joining via the assignment-scoped endpoints above. See `schema.md`.
 
 ## Submissions
 
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
-| GET | `/submissions?assignmentId=` | Bearer (educator, owner) | — | `200 [{ studentId, studentName, status, submittedAt, confirmedAt }]` | Per-assignment status list for educator tracking. |
-| GET | `/submissions/mine?assignmentId=` | Bearer (student) | — | `200 { id, status, submittedAt, confirmedAt }` | Current student's own submission for an assignment. `id` is required to call `/submit`/`/confirm` below. |
-| PATCH | `/submissions/:id/submit` | Bearer (student, owner) | — | `200 { status: 'pending_confirmation' }` | Step 1: "Yes, I have submitted." Fails 409 if not currently `not_submitted`. |
-| PATCH | `/submissions/:id/confirm` | Bearer (student, owner) | — | `200 { status: 'confirmed' }` | Step 2: final confirm. Fails 409 if not currently `pending_confirmation`. |
+| GET | `/submissions?assignmentId=` | Bearer (educator, owner) | — | `200 [{ id, studentId, studentName, groupId, status, submittedAt, confirmedAt, gradedAt }]` | Per-assignment status list for educator tracking/grading. |
+| GET | `/submissions/mine?assignmentId=` | Bearer (student) | — | `200 { id, groupId, status, submittedAt, confirmedAt, gradedAt }` | Current student's own submission. `404` if none exists yet (unjoined group assignment, or enrolled after an individual assignment published). |
+| PATCH | `/submissions/:id/submit` | Bearer (student, owner) | — | `200 { status: 'pending_confirmation' }` | Step 1. Fails 409 if not currently `not_submitted`. Same for individual and group submissions. |
+| PATCH | `/submissions/:id/confirm` | Bearer (student, owner) | — | `200 { status: 'waiting_for_grading' }` | Individual submissions only — `409 NOT_INDIVIDUAL` if `groupId` is set (group submissions move via leader confirm-all instead). Fails 409 if not currently `pending_confirmation`. |
+| PATCH | `/submissions/:id/grade` | Bearer (educator, owner of the assignment) | — | `200 { status: 'graded' }` | Fails 409 if not currently `waiting_for_grading`. |
 
 ## Reports
 
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
-| GET | `/reports?studentId=` | Bearer (educator, or self if student) | — | `200 { assignments: [{ id, status }], completionRate }` | Query param variant, not separate path per entity type. |
-| GET | `/reports?groupId=` | Bearer (educator, or member if student) | — | `200 { members: [...], completionRate }` | Backed by SQL view — see `schema.md`. |
-| GET | `/reports/dashboard` | Bearer (educator) | — | `200 { totalAssignments, totalStudents, avgCompletionRate, groupSummaries: [...] }` | Aggregate for the educator dashboard/analytics view. |
+| GET | `/reports?studentId=` | Bearer (educator, or self if student) | — | `200 { assignments: [{ id, title, courseId, status }], completionRate }` | `completionRate` is graded / total. |
+| GET | `/reports?groupId=` | Bearer (educator, or member if student) | — | `200 { members: [...], completionRate }` | |
+| GET | `/reports/dashboard` | Bearer | — | Educator: `200 { courses: [...], assignments: [{ id, title, courseId, assignmentStatus, notSubmitted, pendingConfirmation, waitingForGrading, graded }] }`. Student: `200 { courses: [...], assignments: [...], completionRate }`. | Role-branched, same endpoint. |
 
 ## Conventions Recap
-- REST resources over RPC-style paths: `POST /assignments/:id/assign` with a `targetType` discriminator in the body, not `/assign/[studentId]` and `/assign/[groupId]` as separate routes.
+- REST resources over RPC-style paths: `POST /assignments/:id/publish` with no body, not an `/assign` action carrying a target payload — targeting is implicit via enrollment/group membership.
 - Reports use query params (`?studentId=` / `?groupId=`) against one endpoint, not one endpoint per entity type.
 - Every mutating endpoint enforces both role check and ownership check (see `security.md`) — "Bearer (educator, owner)" in the tables above means both are checked.
 - Rate limit tier per endpoint documented in `security.md`; not repeated per-row here to avoid duplication.
