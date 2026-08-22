@@ -87,8 +87,8 @@ Reason: zero shared code between the two apps. Workspace tooling was considered 
 - Deployment topology: single Railway service, backend serves built frontend as static files.
 
 ## API conventions
-- REST resources, not RPC-style action paths. E.g. `POST /assignments/:id/assign` with `{ targetType, targetId }` body — not separate `/assign/[studentId]` vs `/assign/[groupId]` routes.
-- Reports via query params against views: `GET /reports?studentId=` or `?groupId=`.
+- REST resources, not RPC-style action paths. E.g. `POST /assignments/:id/publish` (no body) — targeting is implicit via enrollment/group membership, not a separate `/assign` action with a target payload (superseded — see Database section above).
+- `GET /reports/dashboard` is role-branched (any authenticated user): educator gets courses taught + per-assignment status breakdown; student gets enrolled courses + assignment statuses. Per-student/per-group drill-down stays query-param based: `GET /reports?studentId=` or `?groupId=`.
 - Rate limiting tiered, not flat: aggressive on `/auth/register` and `/auth/login`, loose on read endpoints.
 - Full detail in `docs/api.md`.
 

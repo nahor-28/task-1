@@ -1033,3 +1033,23 @@ INSERT INTO submissions (..., status) VALUES (..., 'confirmed');  -- old 3-state
 **Result:** PASS — all 10 checks behaved as designed; no code changes needed after the first pass.
 
 **Cleanup:** `TRUNCATE` all test rows, deleted local token scratch file, `docker compose down`.
+
+---
+
+## 2026-08-22 — Course-centric refactor, Task 8: reports/dashboards (skipped Task 7, see notes)
+
+**Context:** Task 7 (notifications) needed no new code - `docs/architecture.md`'s finalized design already needs nothing beyond what Task 4's `listAssignments` already returns (`publishedAt`, filtered/ordered correctly); the "new" badge itself is explicitly client-side. Moved straight to Task 8.
+
+`reportService.js` was the one file still referencing the dropped `assignment_targets`-era status value (`'confirmed'`, removed from the enum in Task 2) and a flat aggregate dashboard shape. Rewrote `getDashboard` to branch by role per `docs/architecture.md`/the plan: educator gets courses taught + a per-assignment status-count breakdown (`notSubmitted`/`pendingConfirmation`/`waitingForGrading`/`graded`), student gets enrolled courses + their own assignment statuses + `completionRate` (now based on `graded`, the new terminal status, not the removed `confirmed`). Opened `GET /reports/dashboard` from educator-only to any authenticated user (role-branched inside, matching the `courses`/`assignments` list convention from earlier tasks) and dropped the unused `group_progress`-view join from the old dashboard query (superseded by the richer per-assignment breakdown). Updated `CLAUDE.md`'s stale `/assignments/:id/assign` API-convention example to `/publish`, and documented the new dashboard shape.
+
+**Setup:** `docker compose up -d --build`, `localhost:5050`. Registered 1 educator + 1 student, verified via `psql`, logged in for real tokens.
+
+**Tests run (via curl against `localhost:5050/api/v1/reports`):**
+1. Course + enrollment + published individual assignment. Educator dashboard right after publish → 1 assignment, `notSubmitted:1`, all other counts 0. Student dashboard → `status:'not_submitted'`, `completionRate:0`.
+2. Student submits + confirms (self, individual path) → educator dashboard recount: `waitingForGrading:1`, `notSubmitted:0`.
+3. Educator grades → educator dashboard: `graded:1`. Student dashboard: `status:'graded'`, `completionRate:1`.
+4. `GET /reports?studentId=<self>` as the student → matches dashboard data. Same query as the educator (any student) → same data (educators can view any student's drill-down, unchanged from the original design). Student querying a different (fake) `studentId` → 403 FORBIDDEN (ownership check intact).
+
+**Result:** PASS — all 4 checks behaved as designed; no code changes needed after the first pass.
+
+**Cleanup:** `TRUNCATE` all test rows, deleted local token scratch file, `docker compose down`.

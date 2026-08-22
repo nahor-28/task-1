@@ -2,14 +2,14 @@ import { pool } from '../db/pool.js';
 
 async function studentAssignments(studentId) {
   const { rows } = await pool.query(
-    `SELECT a.id, a.title, s.status
+    `SELECT a.id, a.title, a.course_id AS "courseId", s.status
      FROM submissions s JOIN assignments a ON a.id = s.assignment_id
      WHERE s.student_id = $1
-     ORDER BY a.created_at DESC`,
+     ORDER BY a.due_date`,
     [studentId],
   );
-  const confirmed = rows.filter((r) => r.status === 'confirmed').length;
-  const completionRate = rows.length === 0 ? 0 : confirmed / rows.length;
+  const graded = rows.filter((r) => r.status === 'graded').length;
+  const completionRate = rows.length === 0 ? 0 : graded / rows.length;
   return { assignments: rows, completionRate };
 }
 
@@ -39,49 +39,54 @@ export async function getGroupReport(groupId, requester) {
   );
 
   const members = [];
-  let totalConfirmed = 0;
+  let totalGraded = 0;
   let totalSubmissions = 0;
   for (const member of memberRows) {
     const { assignments, completionRate } = await studentAssignments(member.id);
     members.push({ studentId: member.id, name: member.name, completionRate, assignments });
-    totalConfirmed += assignments.filter((a) => a.status === 'confirmed').length;
+    totalGraded += assignments.filter((a) => a.status === 'graded').length;
     totalSubmissions += assignments.length;
   }
-  const completionRate = totalSubmissions === 0 ? 0 : totalConfirmed / totalSubmissions;
+  const completionRate = totalSubmissions === 0 ? 0 : totalGraded / totalSubmissions;
 
   return { report: { members, completionRate } };
 }
 
-export async function getDashboard(educatorId) {
-  const { rows: assignmentCount } = await pool.query(
-    'SELECT count(*)::int AS total FROM assignments WHERE created_by = $1',
+async function educatorDashboard(educatorId) {
+  const { rows: courses } = await pool.query(
+    'SELECT id, title, active FROM courses WHERE created_by = $1 ORDER BY created_at DESC',
     [educatorId],
   );
 
-  const { rows: stats } = await pool.query(
-    `SELECT
-       count(DISTINCT s.student_id)::int AS total_students,
-       COALESCE(COUNT(*) FILTER (WHERE s.status = 'confirmed')::float / NULLIF(COUNT(*), 0), 0) AS avg_completion_rate
-     FROM submissions s JOIN assignments a ON a.id = s.assignment_id
-     WHERE a.created_by = $1`,
-    [educatorId],
-  );
-
-  const { rows: groupSummaries } = await pool.query(
-    `SELECT g.id, g.name, AVG(gp.completion_rate) AS completion_rate
-     FROM group_progress gp
-     JOIN groups g ON g.id = gp.group_id
-     JOIN assignments a ON a.id = gp.assignment_id
+  const { rows: assignments } = await pool.query(
+    `SELECT a.id, a.title, a.course_id AS "courseId", a.status AS "assignmentStatus",
+            COUNT(*) FILTER (WHERE s.status = 'not_submitted')::int AS "notSubmitted",
+            COUNT(*) FILTER (WHERE s.status = 'pending_confirmation')::int AS "pendingConfirmation",
+            COUNT(*) FILTER (WHERE s.status = 'waiting_for_grading')::int AS "waitingForGrading",
+            COUNT(*) FILTER (WHERE s.status = 'graded')::int AS graded
+     FROM assignments a LEFT JOIN submissions s ON s.assignment_id = a.id
      WHERE a.created_by = $1
-     GROUP BY g.id, g.name
-     ORDER BY g.name`,
+     GROUP BY a.id
+     ORDER BY a.created_at DESC`,
     [educatorId],
   );
 
-  return {
-    totalAssignments: assignmentCount[0].total,
-    totalStudents: stats[0].total_students,
-    avgCompletionRate: stats[0].avg_completion_rate,
-    groupSummaries: groupSummaries.map((g) => ({ id: g.id, name: g.name, completionRate: g.completion_rate })),
-  };
+  return { courses, assignments };
+}
+
+async function studentDashboard(studentId) {
+  const { rows: courses } = await pool.query(
+    `SELECT c.id, c.title
+     FROM courses c JOIN course_enrollments ce ON ce.course_id = c.id
+     WHERE ce.student_id = $1 ORDER BY ce.enrolled_at DESC`,
+    [studentId],
+  );
+
+  const { assignments, completionRate } = await studentAssignments(studentId);
+
+  return { courses, assignments, completionRate };
+}
+
+export async function getDashboard(user) {
+  return user.role === 'student' ? studentDashboard(user.id) : educatorDashboard(user.id);
 }

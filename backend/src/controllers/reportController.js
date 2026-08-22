@@ -28,7 +28,7 @@ export async function get(req, res, next) {
 
 export async function dashboard(req, res, next) {
   try {
-    res.json(await getDashboard(req.user.id));
+    res.json(await getDashboard(req.user));
   } catch (err) {
     next(err);
   }
