@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { validate, validateParams } from '../middleware/validate.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
-import { create, list, detail, update, remove, attachment, assign } from '../controllers/assignmentController.js';
+import { create, list, detail, update, remove, attachment, publish } from '../controllers/assignmentController.js';
 
 function handleUpload(req, res, next) {
   upload.single('file')(req, res, (err) => {
@@ -24,22 +24,25 @@ function handleUpload(req, res, next) {
 
 const router = Router();
 
-const createSchema = z.object({
+const baseSchema = z.object({
+  courseId: z.uuid(),
   title: z.string().min(1),
   description: z.string().min(1),
   dueDate: z.coerce.date(),
   onedriveLink: z.url().optional(),
+  type: z.enum(['individual', 'group']),
+  numGroups: z.coerce.number().int().positive().optional(),
 });
 
-const updateSchema = createSchema.partial();
+const createSchema = baseSchema.refine((data) => data.type !== 'group' || data.numGroups !== undefined, {
+  message: 'numGroups is required for group assignments',
+  path: ['numGroups'],
+});
+
+const updateSchema = baseSchema.partial();
 
 const idParamSchema = z.object({
   id: z.uuid(),
-});
-
-const assignSchema = z.object({
-  targetType: z.enum(['student', 'group']),
-  targetId: z.uuid(),
 });
 
 router.post('/', requireAuth, requireRole('educator'), validate(createSchema), create);
@@ -53,13 +56,7 @@ router.put(
   validate(updateSchema),
   update,
 );
-router.delete(
-  '/:id',
-  requireAuth,
-  requireRole('educator'),
-  validateParams(idParamSchema),
-  remove,
-);
+router.delete('/:id', requireAuth, requireRole('educator'), validateParams(idParamSchema), remove);
 router.post(
   '/:id/attachment',
   requireAuth,
@@ -68,13 +65,6 @@ router.post(
   handleUpload,
   attachment,
 );
-router.post(
-  '/:id/assign',
-  requireAuth,
-  requireRole('educator'),
-  validateParams(idParamSchema),
-  validate(assignSchema),
-  assign,
-);
+router.post('/:id/publish', requireAuth, requireRole('educator'), validateParams(idParamSchema), publish);
 
 export default router;

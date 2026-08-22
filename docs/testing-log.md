@@ -963,3 +963,26 @@ INSERT INTO submissions (..., status) VALUES (..., 'confirmed');  -- old 3-state
 **Result:** PASS — all 7 checks behaved as designed; no code changes needed after the first pass.
 
 **Cleanup:** `TRUNCATE` all test rows, deleted the local token scratch file, `docker compose down` (both containers + network removed).
+
+---
+
+## 2026-08-22 — Course-centric refactor, Task 4: assignments backend (course-scoped, publish, guardrails)
+
+**Context:** Same branch. Rewrote `backend/src/{routes,controllers,services}/assignments.js` for the course-centric model: course-scoped create with type selection (draft-by-default), the publish endpoint (individual fan-out / random-leader group seeding via `ORDER BY random()`), and draft-vs-published edit guardrails. Removed the old `POST /:id/assign` route/controller/service (`assignTarget`) since it targeted the now-dropped `assignment_targets` table — replaced entirely by publish. `reportService.js` still references the dropped table/view; left untouched, that's Task 8.
+
+**Setup:** `docker compose up -d --build`, `localhost:5050`. Registered 2 educators + 3 students, verified via `psql`, logged in for real tokens (same pattern as the Task 3 entry).
+
+**Tests run (all via curl against `localhost:5050/api/v1/assignments`, plus direct `psql` checks):**
+1. Course + 3 enrollments set up via the Task 3 endpoints. `POST /assignments` (individual, draft-by-default) as owning educator → 201.
+2. `POST /assignments` with `type=group` and no `numGroups` → 400 VALIDATION_ERROR (zod `.refine`). With a `courseId` the requester doesn't own → 403 COURSE_FORBIDDEN.
+3. `GET /assignments/:id` as an enrolled student while still `draft` → 404 (drafts are invisible to students, not just forbidden — avoids leaking existence). `GET /assignments` (list) for that student → `[]`.
+4. `POST /assignments/:id/publish` → 200, `status: published`, `publishedAt` set. Repeat call → 409 ALREADY_PUBLISHED.
+5. Student `GET /assignments/:id` and `GET /assignments` after publish → both return the assignment now.
+6. **Individual fan-out** — `psql` check: exactly 3 `submissions` rows, one per enrolled student, `status='not_submitted'`, `group_id` null.
+7. `PUT /assignments/:id` on the now-published assignment with `{type:'group', numGroups:5, title:'HW1 Updated'}` → `type`/`numGroups` silently ignored (published guardrail), `title` applied. `DELETE` on it → 409 HAS_SUBMISSIONS.
+8. **Group publish, insufficient students** — created a group assignment with `numGroups=5` against only 3 enrolled students, published → 409 NOT_ENOUGH_STUDENTS, no partial rows written (transaction rolled back — verified no stray `groups`/`submissions` rows existed after).
+9. Edited `numGroups` down to 2 while still draft (allowed) → published → 200. **Group fan-out** — `psql` check: exactly 2 `groups` rows (assignment-scoped), one `group_members` leader row each, one `submissions` row each (`group_id` set, `status='not_submitted'`) — leaders randomly selected from the 3 enrolled students via `ORDER BY random() LIMIT $n`.
+
+**Result:** PASS — all 9 checks behaved as designed; no code changes needed after the first pass.
+
+**Cleanup:** `TRUNCATE` all test rows, deleted local token/response scratch files, `docker compose down`.

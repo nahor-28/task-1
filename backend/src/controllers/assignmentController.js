@@ -2,21 +2,21 @@ import { unlink } from 'node:fs/promises';
 import {
   createAssignment,
   listAssignments,
-  getAssignment,
+  getAssignmentDetail,
   updateAssignment,
   deleteAssignment,
   setAttachment,
-  assignTarget,
+  publishAssignment,
 } from '../services/assignmentService.js';
-
-const PG_UNIQUE_VIOLATION = '23505';
 
 const ERROR_RESPONSES = {
   NOT_FOUND: [404, 'Assignment not found'],
-  FORBIDDEN: [403, 'You do not own this assignment'],
+  FORBIDDEN: [403, 'You do not have access to this assignment'],
   HAS_SUBMISSIONS: [409, 'Cannot delete an assignment with existing submissions - archive instead'],
-  STUDENT_NOT_FOUND: [404, 'Student not found'],
-  GROUP_NOT_FOUND: [404, 'Group not found'],
+  COURSE_NOT_FOUND: [404, 'Course not found'],
+  COURSE_FORBIDDEN: [403, 'You do not own this course'],
+  ALREADY_PUBLISHED: [409, 'Assignment is already published'],
+  NOT_ENOUGH_STUDENTS: [409, 'Not enough enrolled students to form the requested number of groups'],
 };
 
 function sendAssignmentError(res, code) {
@@ -26,11 +26,11 @@ function sendAssignmentError(res, code) {
 
 export async function create(req, res, next) {
   try {
-    const { assignmentId } = await createAssignment({
-      ...req.body,
-      createdBy: req.user.id,
-    });
-    res.status(201).json({ assignmentId });
+    const result = await createAssignment({ ...req.body, createdBy: req.user.id });
+    if (result.error) {
+      return sendAssignmentError(res, result.error);
+    }
+    res.status(201).json({ assignmentId: result.assignmentId });
   } catch (err) {
     next(err);
   }
@@ -46,11 +46,11 @@ export async function list(req, res, next) {
 
 export async function detail(req, res, next) {
   try {
-    const assignment = await getAssignment(req.params.id);
-    if (!assignment) {
-      return sendAssignmentError(res, 'NOT_FOUND');
+    const result = await getAssignmentDetail(req.params.id, req.user);
+    if (result.error) {
+      return sendAssignmentError(res, result.error);
     }
-    res.json(assignment);
+    res.json(result.assignment);
   } catch (err) {
     next(err);
   }
@@ -100,19 +100,14 @@ export async function attachment(req, res, next) {
   }
 }
 
-export async function assign(req, res, next) {
+export async function publish(req, res, next) {
   try {
-    const result = await assignTarget(req.params.id, req.user.id, req.body);
+    const result = await publishAssignment(req.params.id, req.user.id);
     if (result.error) {
       return sendAssignmentError(res, result.error);
     }
-    res.status(201).json({ targetId: result.targetId });
+    res.json(result.assignment);
   } catch (err) {
-    if (err.code === PG_UNIQUE_VIOLATION) {
-      return res.status(409).json({
-        error: { message: 'Target already assigned to this assignment', code: 'ALREADY_ASSIGNED' },
-      });
-    }
     next(err);
   }
 }
