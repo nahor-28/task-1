@@ -986,3 +986,24 @@ INSERT INTO submissions (..., status) VALUES (..., 'confirmed');  -- old 3-state
 **Result:** PASS — all 9 checks behaved as designed; no code changes needed after the first pass.
 
 **Cleanup:** `TRUNCATE` all test rows, deleted local token/response scratch files, `docker compose down`.
+
+---
+
+## 2026-08-22 — Course-centric refactor, Task 5: groups backend (self-assembly)
+
+**Context:** Same branch. Groups are no longer standalone (per Task 2's migration, `groups.created_by` was dropped and `assignment_id` is NOT NULL), so the old `routes/groups.js` + `groupController.js` + `groupService.js` (manual create/mine/all/detail/add-member/remove-member/delete) were already broken against the new schema — this task replaces them entirely with the self-assembly model documented in `docs/architecture.md` flow 2: `GET /assignments/:id/groups` (list open groups) and `POST /assignments/:id/groups/:groupId/join`. Deleted the old standalone `routes/groups.js` and its `/api/v1/groups` mount in `index.js` (no remaining need for a top-level `/groups` router until Task 6's leader confirm-all).
+
+**Setup:** `docker compose up -d --build`, `localhost:5050`. Registered 1 educator + 4 students (5th hit the known `strictLimiter` 5/60s rate limit, expected per the 2026-08-19 entry — proceeded with 4), verified via `psql`, logged in for real tokens.
+
+**Tests run (all via curl against `localhost:5050/api/v1/assignments/:id/groups...`, plus `psql` checks):**
+1. Course + 4 enrollments, group assignment with `numGroups=1` created and published (random leader seeding already covered in the Task 4 entry).
+2. `GET /assignments/:id/groups` on the still-draft assignment → 404 ASSIGNMENT_NOT_FOUND (drafts hidden). After publish → 200, 1 group with the seeded leader.
+3. Seeded leader tries to join their own group again → 409 ALREADY_IN_GROUP.
+4. A different enrolled student joins → 201. Repeat join → 409 ALREADY_IN_GROUP. Group listing afterward shows both members with correct roles (leader/member).
+5. Educator tries to join → 403 (route is `requireRole('student')`).
+6. Join against a random non-existent group id → 404 GROUP_NOT_FOUND.
+7. `psql` check: exactly 2 `submissions` rows for the assignment (leader + joiner), both `group_id` set to the joined group, `status='not_submitted'`.
+
+**Result:** PASS — all 7 checks behaved as designed. Did not re-test the non-enrolled-student FORBIDDEN path here (registration for a fresh outsider account hit the same rate limiter mid-run) since it exercises the identical `isEnrolled` check already verified for courses (Task 3) and assignments (Task 4) — judged redundant rather than worth a 60s rate-limit wait.
+
+**Cleanup:** `TRUNCATE` all test rows, deleted local token scratch file, `docker compose down`.

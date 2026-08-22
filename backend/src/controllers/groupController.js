@@ -1,19 +1,10 @@
-import {
-  createGroup,
-  isMemberOrGroupExists,
-  listAllGroups,
-  listMyGroups,
-  addMember,
-  removeMember,
-  deleteGroup,
-} from '../services/groupService.js';
+import { listOpenGroups, joinGroup } from '../services/groupService.js';
 
 const ERROR_RESPONSES = {
-  NOT_FOUND: [404, 'Group not found'],
-  FORBIDDEN: [403, 'You must be the group leader to do this'],
-  STUDENT_NOT_FOUND: [404, 'Student not found'],
-  ALREADY_MEMBER: [409, 'Student is already a member of this group'],
-  NOT_MEMBER: [404, 'Student is not a member of this group'],
+  ASSIGNMENT_NOT_FOUND: [404, 'Assignment not found'],
+  FORBIDDEN: [403, 'You do not have access to this assignment'],
+  GROUP_NOT_FOUND: [404, 'Group not found'],
+  ALREADY_IN_GROUP: [409, 'You are already in a group for this assignment'],
 };
 
 function sendGroupError(res, code) {
@@ -21,74 +12,25 @@ function sendGroupError(res, code) {
   res.status(status).json({ error: { message, code } });
 }
 
-export async function create(req, res, next) {
+export async function listGroups(req, res, next) {
   try {
-    const { groupId } = await createGroup({ name: req.body.name, createdBy: req.user.id });
-    res.status(201).json({ groupId });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function detail(req, res, next) {
-  try {
-    const result = await isMemberOrGroupExists(req.params.id, req.user);
+    const result = await listOpenGroups(req.params.id, req.user);
     if (result.error) {
       return sendGroupError(res, result.error);
     }
-    res.json(result.group);
+    res.json(result.groups);
   } catch (err) {
     next(err);
   }
 }
 
-export async function mine(req, res, next) {
+export async function join(req, res, next) {
   try {
-    res.json(await listMyGroups(req.user.id));
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function all(req, res, next) {
-  try {
-    res.json(await listAllGroups());
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function addMemberHandler(req, res, next) {
-  try {
-    const result = await addMember(req.params.id, req.user.id, req.body.studentId);
+    const result = await joinGroup(req.params.id, req.params.groupId, req.user.id);
     if (result.error) {
       return sendGroupError(res, result.error);
     }
-    res.status(201).json({ memberId: result.memberId });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function removeMemberHandler(req, res, next) {
-  try {
-    const result = await removeMember(req.params.id, req.user.id, req.params.studentId);
-    if (result.error) {
-      return sendGroupError(res, result.error);
-    }
-    res.json({});
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function remove(req, res, next) {
-  try {
-    const result = await deleteGroup(req.params.id, req.user.id);
-    if (result.error) {
-      return sendGroupError(res, result.error);
-    }
-    res.json({});
+    res.status(201).json({});
   } catch (err) {
     next(err);
   }

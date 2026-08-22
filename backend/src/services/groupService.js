@@ -1,121 +1,97 @@
 import { pool } from '../db/pool.js';
 
-export async function createGroup({ name, createdBy }) {
+async function getGroupAssignment(assignmentId) {
+  const { rows } = await pool.query(
+    'SELECT type, status, course_id, created_by FROM assignments WHERE id = $1',
+    [assignmentId],
+  );
+  return rows[0] ?? null;
+}
+
+async function isEnrolled(courseId, studentId) {
+  const { rows } = await pool.query(
+    'SELECT 1 FROM course_enrollments WHERE course_id = $1 AND student_id = $2',
+    [courseId, studentId],
+  );
+  return rows.length > 0;
+}
+
+async function checkAccess(assignment, user) {
+  if (user.role === 'educator') {
+    return assignment.created_by === user.id ? null : { error: 'FORBIDDEN' };
+  }
+  return (await isEnrolled(assignment.course_id, user.id)) ? null : { error: 'FORBIDDEN' };
+}
+
+export async function listOpenGroups(assignmentId, user) {
+  const assignment = await getGroupAssignment(assignmentId);
+  if (!assignment || assignment.type !== 'group' || assignment.status !== 'published') {
+    return { error: 'ASSIGNMENT_NOT_FOUND' };
+  }
+
+  const accessError = await checkAccess(assignment, user);
+  if (accessError) return accessError;
+
+  const { rows: groups } = await pool.query(
+    'SELECT id, name, created_at FROM groups WHERE assignment_id = $1 ORDER BY name',
+    [assignmentId],
+  );
+
+  const withMembers = await Promise.all(
+    groups.map(async (g) => {
+      const { rows: members } = await pool.query(
+        `SELECT u.id, u.name, u.email, gm.role
+         FROM group_members gm JOIN users u ON u.id = gm.student_id
+         WHERE gm.group_id = $1 ORDER BY gm.joined_at`,
+        [g.id],
+      );
+      return { id: g.id, name: g.name, createdAt: g.created_at, members };
+    }),
+  );
+
+  return { groups: withMembers };
+}
+
+export async function joinGroup(assignmentId, groupId, studentId) {
+  const assignment = await getGroupAssignment(assignmentId);
+  if (!assignment || assignment.type !== 'group' || assignment.status !== 'published') {
+    return { error: 'ASSIGNMENT_NOT_FOUND' };
+  }
+
+  if (!(await isEnrolled(assignment.course_id, studentId))) {
+    return { error: 'FORBIDDEN' };
+  }
+
+  const { rows: groupRows } = await pool.query(
+    'SELECT id FROM groups WHERE id = $1 AND assignment_id = $2',
+    [groupId, assignmentId],
+  );
+  if (!groupRows[0]) return { error: 'GROUP_NOT_FOUND' };
+
+  const { rows: existing } = await pool.query(
+    `SELECT 1 FROM group_members gm JOIN groups g ON g.id = gm.group_id
+     WHERE g.assignment_id = $1 AND gm.student_id = $2`,
+    [assignmentId, studentId],
+  );
+  if (existing.length > 0) return { error: 'ALREADY_IN_GROUP' };
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { rows } = await client.query(
-      'INSERT INTO groups (name, created_by) VALUES ($1, $2) RETURNING id',
-      [name, createdBy],
-    );
-    const groupId = rows[0].id;
+    await client.query('INSERT INTO group_members (group_id, student_id) VALUES ($1, $2)', [
+      groupId,
+      studentId,
+    ]);
     await client.query(
-      `INSERT INTO group_members (group_id, student_id, role) VALUES ($1, $2, 'leader')`,
-      [groupId, createdBy],
+      'INSERT INTO submissions (assignment_id, student_id, group_id) VALUES ($1, $2, $3)',
+      [assignmentId, studentId, groupId],
     );
     await client.query('COMMIT');
-    return { groupId };
+    return { success: true };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
   } finally {
     client.release();
   }
-}
-
-export async function getGroup(id) {
-  const { rows } = await pool.query('SELECT id, name, created_by, created_at FROM groups WHERE id = $1', [id]);
-  if (!rows[0]) return null;
-
-  const members = await pool.query(
-    `SELECT u.id, u.name, u.email, gm.role
-     FROM group_members gm JOIN users u ON u.id = gm.student_id
-     WHERE gm.group_id = $1 ORDER BY gm.joined_at`,
-    [id],
-  );
-  return { ...rows[0], members: members.rows };
-}
-
-export async function listAllGroups() {
-  const { rows } = await pool.query('SELECT id, name FROM groups ORDER BY name');
-  return rows;
-}
-
-export async function listMyGroups(studentId) {
-  const { rows } = await pool.query(
-    `SELECT g.id, g.name
-     FROM groups g JOIN group_members gm ON gm.group_id = g.id
-     WHERE gm.student_id = $1 ORDER BY g.created_at DESC`,
-    [studentId],
-  );
-  return rows;
-}
-
-async function getMembership(groupId, studentId) {
-  const { rows } = await pool.query(
-    'SELECT role FROM group_members WHERE group_id = $1 AND student_id = $2',
-    [groupId, studentId],
-  );
-  return rows[0] ?? null;
-}
-
-export async function isMemberOrGroupExists(groupId, user) {
-  const group = await getGroup(groupId);
-  if (!group) return { error: 'NOT_FOUND' };
-  if (user.role === 'educator') return { group };
-  const membership = await getMembership(groupId, user.id);
-  if (!membership) return { error: 'FORBIDDEN' };
-  return { group };
-}
-
-async function requireLeader(groupId, requesterId) {
-  const group = await getGroup(groupId);
-  if (!group) return { error: 'NOT_FOUND' };
-  const membership = await getMembership(groupId, requesterId);
-  if (!membership || membership.role !== 'leader') {
-    return { error: 'FORBIDDEN' };
-  }
-  return { group };
-}
-
-export async function addMember(groupId, requesterId, studentId) {
-  const leader = await requireLeader(groupId, requesterId);
-  if (leader.error) return leader;
-
-  const { rows } = await pool.query('SELECT role FROM users WHERE id = $1', [studentId]);
-  if (!rows[0] || rows[0].role !== 'student') {
-    return { error: 'STUDENT_NOT_FOUND' };
-  }
-
-  const existing = await getMembership(groupId, studentId);
-  if (existing) {
-    return { error: 'ALREADY_MEMBER' };
-  }
-
-  const { rows: inserted } = await pool.query(
-    'INSERT INTO group_members (group_id, student_id) VALUES ($1, $2) RETURNING student_id',
-    [groupId, studentId],
-  );
-  return { memberId: inserted[0].student_id };
-}
-
-export async function removeMember(groupId, requesterId, studentId) {
-  const leader = await requireLeader(groupId, requesterId);
-  if (leader.error) return leader;
-
-  const existing = await getMembership(groupId, studentId);
-  if (!existing) {
-    return { error: 'NOT_MEMBER' };
-  }
-
-  await pool.query('DELETE FROM group_members WHERE group_id = $1 AND student_id = $2', [groupId, studentId]);
-  return { success: true };
-}
-
-export async function deleteGroup(groupId, requesterId) {
-  const leader = await requireLeader(groupId, requesterId);
-  if (leader.error) return leader;
-
-  await pool.query('DELETE FROM groups WHERE id = $1', [groupId]);
-  return { success: true };
 }

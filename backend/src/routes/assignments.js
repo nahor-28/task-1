@@ -4,6 +4,7 @@ import { validate, validateParams } from '../middleware/validate.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
 import { create, list, detail, update, remove, attachment, publish } from '../controllers/assignmentController.js';
+import { listGroups, join } from '../controllers/groupController.js';
 
 function handleUpload(req, res, next) {
   upload.single('file')(req, res, (err) => {
@@ -45,6 +46,11 @@ const idParamSchema = z.object({
   id: z.uuid(),
 });
 
+const groupJoinParamSchema = z.object({
+  id: z.uuid(),
+  groupId: z.uuid(),
+});
+
 router.post('/', requireAuth, requireRole('educator'), validate(createSchema), create);
 router.get('/', requireAuth, list);
 router.get('/:id', requireAuth, validateParams(idParamSchema), detail);
@@ -66,5 +72,13 @@ router.post(
   attachment,
 );
 router.post('/:id/publish', requireAuth, requireRole('educator'), validateParams(idParamSchema), publish);
+router.get('/:id/groups', requireAuth, validateParams(idParamSchema), listGroups);
+router.post(
+  '/:id/groups/:groupId/join',
+  requireAuth,
+  requireRole('student'),
+  validateParams(groupJoinParamSchema),
+  join,
+);
 
 export default router;
