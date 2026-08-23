@@ -13,49 +13,64 @@ export function CourseDetail() {
     api.get(`/courses/${id}`, token).then(setCourse).catch((err) => setError(err.message));
   }, [id, token]);
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
-  if (!course) return null;
+  if (error) return <div className="alert alert-error"><span>{error}</span></div>;
+
+  if (!course) {
+    return (
+      <div className="space-y-6">
+        <div className="skeleton h-20 rounded-box" />
+        <div className="skeleton h-40 rounded-box" />
+        <div className="skeleton h-32 rounded-box" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <div className="bg-white border border-gray-200 rounded-lg p-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900">{course.title}</h1>
-          {course.description && <p className="text-sm text-gray-700 mt-1">{course.description}</p>}
+      <div className="card bg-base-100 shadow-sm border border-base-300">
+        <div className="card-body flex-row items-center justify-between flex-wrap gap-4">
+          <div>
+            <h1 className="card-title">{course.title}</h1>
+            {course.description && <p className="text-sm text-base-content/70 mt-1">{course.description}</p>}
+          </div>
+          <Link to={`/educator/assignments/new?courseId=${id}`} className="btn btn-primary">
+            New assignment
+          </Link>
         </div>
-        <Link to={`/educator/assignments/new?courseId=${id}`} className="bg-gray-900 text-white text-sm rounded px-4 py-2">
-          New assignment
-        </Link>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h2 className="font-medium text-gray-900 mb-3">Assignments</h2>
-        {course.assignments.length === 0 && <p className="text-sm text-gray-500">No assignments yet.</p>}
-        <ul className="space-y-2">
-          {course.assignments.map((a) => (
-            <li key={a.id}>
-              <Link
-                to={`/educator/assignments/${a.id}`}
-                className="block border border-gray-200 rounded-lg p-3 hover:border-gray-400 text-sm"
-              >
-                <span className="font-medium text-gray-900">{a.title}</span>
-                <span className="text-gray-500"> — {a.status}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+      <div className="card bg-base-100 shadow-sm border border-base-300">
+        <div className="card-body">
+          <h2 className="font-medium text-base-content mb-3">Assignments</h2>
+          {course.assignments.length === 0 && <p className="text-sm text-base-content/60">No assignments yet.</p>}
+          <ul className="flex flex-col gap-2">
+            {course.assignments.map((a) => (
+              <li key={a.id}>
+                <Link
+                  to={`/educator/assignments/${a.id}`}
+                  className="flex items-center justify-between gap-4 border border-base-300 rounded-box p-3 transition-colors hover:border-primary/40"
+                >
+                  <span className="font-medium text-base-content text-sm">{a.title}</span>
+                  <span className="badge badge-sm badge-ghost capitalize">{a.status}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h2 className="font-medium text-gray-900 mb-3">Roster</h2>
-        {course.roster.length === 0 && <p className="text-sm text-gray-500">No students enrolled yet.</p>}
-        <ul className="space-y-1">
-          {course.roster.map((s) => (
-            <li key={s.id} className="text-sm text-gray-700">
-              {s.name} <span className="text-gray-400">{s.email}</span>
-            </li>
-          ))}
-        </ul>
+      <div className="card bg-base-100 shadow-sm border border-base-300">
+        <div className="card-body">
+          <h2 className="font-medium text-base-content mb-3">Roster</h2>
+          {course.roster.length === 0 && <p className="text-sm text-base-content/60">No students enrolled yet.</p>}
+          <ul className="flex flex-col gap-1">
+            {course.roster.map((s) => (
+              <li key={s.id} className="text-sm text-base-content/80">
+                {s.name} <span className="text-base-content/50">{s.email}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </div>
   );
