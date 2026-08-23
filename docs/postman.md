@@ -1,5 +1,7 @@
 # Postman Guide
 
+**Stale as of the course-centric refactor (see `CLAUDE.md`, `docs/testing-log.md` 2026-08-22 entries).** The collection below still targets the pre-refactor endpoints (`/groups` CRUD, `/assignments/:id/assign`, the old 3-state submission status). It needs regenerating against the current API (`docs/api.md`) before it's usable again — not done as part of the refactor since it requires re-running and re-verifying inside Postman itself, which wasn't exercised this session. The rest of this doc describes the collection as it was originally built and is kept for reference until it's refreshed.
+
 Written after all curl testing in `docs/testing-log.md` passed (Phases 1–7), per `CLAUDE.md`. The Postman collection exercises the same endpoints already verified by curl — it's a convenient way to explore or demo the API, not a second independent test pass.
 
 ## Files

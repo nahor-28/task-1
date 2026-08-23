@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { StatusBadge } from '../../components/StatusBadge.jsx';
 
 export function Reports() {
   const { token, user } = useAuth();
@@ -14,23 +15,46 @@ export function Reports() {
       .catch((err) => setError(err.message));
   }, [token, user.id]);
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
-  if (!report) return null;
+  if (error) return <div className="alert alert-error"><span>{error}</span></div>;
+
+  if (!report) {
+    return (
+      <div className="space-y-4">
+        <div className="skeleton h-24 rounded-box" />
+        <div className="skeleton h-64 rounded-box" />
+      </div>
+    );
+  }
+
+  const percent = Math.round(report.completionRate * 100);
 
   return (
-    <div>
-      <h1 className="text-lg font-semibold text-gray-900 mb-4">Your Progress</h1>
-      <p className="text-sm text-gray-600 mb-4">
-        Completion rate: <span className="font-medium text-gray-900">{Math.round(report.completionRate * 100)}%</span>
-      </p>
-      <ul className="space-y-2">
-        {report.assignments.map((a) => (
-          <li key={a.id} className="bg-white border border-gray-200 rounded-lg p-3 flex justify-between text-sm">
-            <span className="text-gray-700">{a.title}</span>
-            <span className="text-gray-900 font-medium">{a.status}</span>
-          </li>
-        ))}
-      </ul>
+    <div className="space-y-6">
+      <h1 className="text-xl font-semibold text-base-content">Your Progress</h1>
+
+      <div className="card bg-base-100 shadow-sm border border-base-300">
+        <div className="card-body">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm text-base-content/70">Overall completion</p>
+            <p className="text-sm font-medium text-base-content">{percent}%</p>
+          </div>
+          <progress className="progress progress-primary" value={percent} max="100" />
+        </div>
+      </div>
+
+      <div className="card bg-base-100 shadow-sm border border-base-300">
+        <div className="card-body">
+          {report.assignments.length === 0 && <p className="text-sm text-base-content/60">No assignments yet.</p>}
+          <ul className="flex flex-col divide-y divide-base-300">
+            {report.assignments.map((a) => (
+              <li key={a.id} className="flex items-center justify-between gap-4 py-3">
+                <span className="text-sm text-base-content">{a.title}</span>
+                <StatusBadge status={a.status} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }

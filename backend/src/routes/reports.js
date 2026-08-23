@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { validateQuery } from '../middleware/validate.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth } from '../middleware/auth.js';
 import { get, dashboard } from '../controllers/reportController.js';
 
 const router = Router();
@@ -15,7 +15,7 @@ const reportQuerySchema = z
     message: 'Provide exactly one of studentId or groupId',
   });
 
-router.get('/dashboard', requireAuth, requireRole('educator'), dashboard);
+router.get('/dashboard', requireAuth, dashboard);
 router.get('/', requireAuth, validateQuery(reportQuerySchema), get);
 
 export default router;

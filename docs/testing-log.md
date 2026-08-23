@@ -916,3 +916,172 @@ Deleted in one transaction, in FK-safe order (verified before commit): `assignme
 **Result:** PASS — 16 old users, 6 old groups, 13 old assignments, 7 stray `assignment_targets` removed. Remaining state confirmed clean: exactly 20 users (`browser.edu@test.com`, `browser.stu@test.com`, `educator1-3@seed.test`, `student1-15@seed.test`), 4 groups (Team Alpha, Team Beta, Browser Test Group, "team new"), 11 assignments, 48 `assignment_targets`, 52 `submissions` — all traceable to this session's users only.
 
 **Notes:** Docker stack (`task-1-postgres-1`, `task-1-backend-1`) and the Vite dev server (`localhost:5173`) were kept running throughout and are still up as of this entry — user is continuing manual browser testing. Stack will be torn down and this log updated once they confirm they're done.
+
+---
+
+## 2026-08-22 — Course-centric refactor, Task 2: migrations 009-016
+
+**Context:** `task-2-ui-ux-enhancements` branch, course-centric architecture refactor. Applied the 8 new migration files (courses, course_enrollments, assignments/groups/submissions alters, `assignment_targets` drop, `group_progress` rebuild) against a real Postgres instance before committing, per the project's "test constraints directly against Postgres" build-order convention. Backend/frontend not running for this check — postgres-only.
+
+**Setup:** `docker compose up -d postgres`, then `docker compose run --rm backend pnpm migrate` (existing `pgdata` volume already had 001-008 applied from prior sessions, so this run only applied 009-016).
+
+**Test 1 — schema shape:** `\d` on each altered/new table — confirmed all new columns, CHECK constraints, FKs, and the rebuilt `group_progress` view matched `docs/schema.md` exactly. Confirmed `assignment_targets` no longer exists (`\dt assignment_targets` → not found).
+
+**Test 2 — constraint enforcement (expect failure):**
+```sql
+INSERT INTO assignments (..., type) VALUES (..., 'group');  -- no num_groups
+```
+**Result:** PASS — rejected by `assignments_group_requires_num_groups` CHECK.
+
+```sql
+INSERT INTO submissions (..., status) VALUES (..., 'confirmed');  -- old 3-state value
+```
+**Result:** PASS — rejected by `submissions_status_check` (new 4-state enum only).
+
+**Test 3 — group fan-out + `group_progress` view:** Inserted a course, enrollment, published group assignment (`num_groups=1`), one group with a leader `group_members` row, one `submissions` row (`group_id` set, `status='waiting_for_grading'`). Queried `group_progress` → `completion_rate = 0` (correct, none graded yet). Updated the row to `status='graded'` → re-queried → `completion_rate = 1`.
+**Result:** PASS.
+
+**Cleanup:** `TRUNCATE` all affected tables to clear test rows (schema kept, no data left behind), `docker compose down` (container + network removed, no lingering daemon).
+
+---
+
+## 2026-08-22 — Course-centric refactor, Task 3: courses backend (CRUD, self-enroll, detail)
+
+**Context:** Same branch. Added `backend/src/{routes,controllers,services}/courses.js` family (course CRUD for professors incl. active toggle, student self-enroll, "my courses" list, course detail with roster+assignments) and wired into `index.js`. Validated against the full stack (postgres + backend, `docker compose up -d --build`) via curl, going through the real register → DB-verify (bypassed Brevo, no `.env` read — just `UPDATE users SET email_verified = true` for the two test accounts) → login flow to get real JWTs, per the project's curl-testing convention.
+
+**Setup:** `docker compose up -d --build`, backend reachable at `localhost:5050` (`BACKEND_HOST_PORT` override, see 2026-08-19 entry). Registered `prof.course.test@test.com` (educator) and `stu.course.test@test.com` (student), verified both directly via `psql`, logged in via `POST /auth/login` for real tokens.
+
+**Tests run (all via curl against `localhost:5050/api/v1/courses`):**
+1. `POST /courses` as educator → 201, course created. As student → 403 FORBIDDEN. Missing `title` → 400 VALIDATION_ERROR.
+2. `GET /courses/mine` — educator sees the course they created; student sees `[]` before enrolling.
+3. `GET /courses` (browse) — student sees the active course; educator on the same route → 403 (student-only route).
+4. `GET /courses/:id` — student not yet enrolled → 403 NOT_ENROLLED. Owning educator → 200 with `roster: []`, `assignments: []`.
+5. `POST /courses/:id/enroll` — student → 201. Repeat call → 409 ALREADY_ENROLLED.
+6. `GET /courses/:id` after enrolling → 200, roster now includes the student. `GET /courses/mine` for that student now includes the course.
+7. `PUT /courses/:id` with `{"active": false}` as owning educator → 200, `active: false`. `GET /courses` (browse) afterward → `[]` (inactive course correctly excluded).
+
+**Result:** PASS — all 7 checks behaved as designed; no code changes needed after the first pass.
+
+**Cleanup:** `TRUNCATE` all test rows, deleted the local token scratch file, `docker compose down` (both containers + network removed).
+
+---
+
+## 2026-08-22 — Course-centric refactor, Task 4: assignments backend (course-scoped, publish, guardrails)
+
+**Context:** Same branch. Rewrote `backend/src/{routes,controllers,services}/assignments.js` for the course-centric model: course-scoped create with type selection (draft-by-default), the publish endpoint (individual fan-out / random-leader group seeding via `ORDER BY random()`), and draft-vs-published edit guardrails. Removed the old `POST /:id/assign` route/controller/service (`assignTarget`) since it targeted the now-dropped `assignment_targets` table — replaced entirely by publish. `reportService.js` still references the dropped table/view; left untouched, that's Task 8.
+
+**Setup:** `docker compose up -d --build`, `localhost:5050`. Registered 2 educators + 3 students, verified via `psql`, logged in for real tokens (same pattern as the Task 3 entry).
+
+**Tests run (all via curl against `localhost:5050/api/v1/assignments`, plus direct `psql` checks):**
+1. Course + 3 enrollments set up via the Task 3 endpoints. `POST /assignments` (individual, draft-by-default) as owning educator → 201.
+2. `POST /assignments` with `type=group` and no `numGroups` → 400 VALIDATION_ERROR (zod `.refine`). With a `courseId` the requester doesn't own → 403 COURSE_FORBIDDEN.
+3. `GET /assignments/:id` as an enrolled student while still `draft` → 404 (drafts are invisible to students, not just forbidden — avoids leaking existence). `GET /assignments` (list) for that student → `[]`.
+4. `POST /assignments/:id/publish` → 200, `status: published`, `publishedAt` set. Repeat call → 409 ALREADY_PUBLISHED.
+5. Student `GET /assignments/:id` and `GET /assignments` after publish → both return the assignment now.
+6. **Individual fan-out** — `psql` check: exactly 3 `submissions` rows, one per enrolled student, `status='not_submitted'`, `group_id` null.
+7. `PUT /assignments/:id` on the now-published assignment with `{type:'group', numGroups:5, title:'HW1 Updated'}` → `type`/`numGroups` silently ignored (published guardrail), `title` applied. `DELETE` on it → 409 HAS_SUBMISSIONS.
+8. **Group publish, insufficient students** — created a group assignment with `numGroups=5` against only 3 enrolled students, published → 409 NOT_ENOUGH_STUDENTS, no partial rows written (transaction rolled back — verified no stray `groups`/`submissions` rows existed after).
+9. Edited `numGroups` down to 2 while still draft (allowed) → published → 200. **Group fan-out** — `psql` check: exactly 2 `groups` rows (assignment-scoped), one `group_members` leader row each, one `submissions` row each (`group_id` set, `status='not_submitted'`) — leaders randomly selected from the 3 enrolled students via `ORDER BY random() LIMIT $n`.
+
+**Result:** PASS — all 9 checks behaved as designed; no code changes needed after the first pass.
+
+**Cleanup:** `TRUNCATE` all test rows, deleted local token/response scratch files, `docker compose down`.
+
+---
+
+## 2026-08-22 — Course-centric refactor, Task 5: groups backend (self-assembly)
+
+**Context:** Same branch. Groups are no longer standalone (per Task 2's migration, `groups.created_by` was dropped and `assignment_id` is NOT NULL), so the old `routes/groups.js` + `groupController.js` + `groupService.js` (manual create/mine/all/detail/add-member/remove-member/delete) were already broken against the new schema — this task replaces them entirely with the self-assembly model documented in `docs/architecture.md` flow 2: `GET /assignments/:id/groups` (list open groups) and `POST /assignments/:id/groups/:groupId/join`. Deleted the old standalone `routes/groups.js` and its `/api/v1/groups` mount in `index.js` (no remaining need for a top-level `/groups` router until Task 6's leader confirm-all).
+
+**Setup:** `docker compose up -d --build`, `localhost:5050`. Registered 1 educator + 4 students (5th hit the known `strictLimiter` 5/60s rate limit, expected per the 2026-08-19 entry — proceeded with 4), verified via `psql`, logged in for real tokens.
+
+**Tests run (all via curl against `localhost:5050/api/v1/assignments/:id/groups...`, plus `psql` checks):**
+1. Course + 4 enrollments, group assignment with `numGroups=1` created and published (random leader seeding already covered in the Task 4 entry).
+2. `GET /assignments/:id/groups` on the still-draft assignment → 404 ASSIGNMENT_NOT_FOUND (drafts hidden). After publish → 200, 1 group with the seeded leader.
+3. Seeded leader tries to join their own group again → 409 ALREADY_IN_GROUP.
+4. A different enrolled student joins → 201. Repeat join → 409 ALREADY_IN_GROUP. Group listing afterward shows both members with correct roles (leader/member).
+5. Educator tries to join → 403 (route is `requireRole('student')`).
+6. Join against a random non-existent group id → 404 GROUP_NOT_FOUND.
+7. `psql` check: exactly 2 `submissions` rows for the assignment (leader + joiner), both `group_id` set to the joined group, `status='not_submitted'`.
+
+**Result:** PASS — all 7 checks behaved as designed. Did not re-test the non-enrolled-student FORBIDDEN path here (registration for a fresh outsider account hit the same rate limiter mid-run) since it exercises the identical `isEnrolled` check already verified for courses (Task 3) and assignments (Task 4) — judged redundant rather than worth a 60s rate-limit wait.
+
+**Cleanup:** `TRUNCATE` all test rows, deleted local token scratch file, `docker compose down`.
+
+---
+
+## 2026-08-22 — Course-centric refactor, Task 6: submissions backend (confirm terminal status, grading, leader confirm-all)
+
+**Context:** Same branch. `submit()` in `submissionService.js` was already correct for the new model (not_submitted -> pending_confirmation) and needed no change. Rewrote `confirm()` to land on `waiting_for_grading` instead of the old `confirmed` (removed from the enum in Task 2) and to reject group-assignment submissions (`group_id IS NOT NULL`) with a new `NOT_INDIVIDUAL` error - those are swept by the leader instead. Added `grade()` (educator-only, `waiting_for_grading` -> `graded`). Added `confirmAllForGroup()` to `groupService.js` and recreated `routes/groups.js` (removed in Task 5 since nothing needed a top-level `/groups` route yet) to host `POST /groups/:id/confirm-all`, per `docs/architecture.md` flow 3.
+
+**Setup:** `docker compose up -d --build`, `localhost:5050`. Registered 1 educator + 2 students, verified via `psql`, logged in for real tokens.
+
+**Tests run (individual path, all via curl against `localhost:5050/api/v1/submissions`):**
+1. `PATCH /:id/confirm` before submit → 409 INVALID_STATE. `PATCH /:id/grade` before confirm → 409 INVALID_STATE.
+2. `PATCH /:id/submit` → 200, `pending_confirmation`.
+3. A different student tries to confirm the first student's submission → 403 FORBIDDEN (ownership check).
+4. Owning student confirms → 200, `waiting_for_grading` (not the old `confirmed`).
+5. Educator grades → 200, `graded`. Grading again → 409 INVALID_STATE (no double-grading).
+
+**Tests run (group path, via curl against `localhost:5050/api/v1/submissions` and `/api/v1/groups`):**
+6. Group assignment (`numGroups=1`) published; identified the randomly-seeded leader from `GET /assignments/:id/groups`, had the other student join.
+7. Member submits → `pending_confirmation`. Member tries to self-confirm → 409 NOT_INDIVIDUAL (group submissions only move via leader confirm-all).
+8. Non-leader member tries `POST /groups/:id/confirm-all` → 403 NOT_LEADER.
+9. Leader calls confirm-all while **their own row is still `not_submitted`** (never submitted) → 200, `{updatedCount: 2, notSubmittedStudentIds: [<leader's id>]}` — proceeded anyway per the non-blocking design, swept both rows (leader's own included) to `waiting_for_grading` in one statement. `psql` check confirmed both rows `waiting_for_grading` with `confirmed_at` set. Repeat confirm-all → `{updatedCount: 0}` (nothing left to sweep).
+10. Educator graded both group submissions → `graded`; final `psql` count check: 2 rows, both `graded`.
+
+**Result:** PASS — all 10 checks behaved as designed; no code changes needed after the first pass.
+
+**Cleanup:** `TRUNCATE` all test rows, deleted local token scratch file, `docker compose down`.
+
+---
+
+## 2026-08-22 — Course-centric refactor, Task 8: reports/dashboards (skipped Task 7, see notes)
+
+**Context:** Task 7 (notifications) needed no new code - `docs/architecture.md`'s finalized design already needs nothing beyond what Task 4's `listAssignments` already returns (`publishedAt`, filtered/ordered correctly); the "new" badge itself is explicitly client-side. Moved straight to Task 8.
+
+`reportService.js` was the one file still referencing the dropped `assignment_targets`-era status value (`'confirmed'`, removed from the enum in Task 2) and a flat aggregate dashboard shape. Rewrote `getDashboard` to branch by role per `docs/architecture.md`/the plan: educator gets courses taught + a per-assignment status-count breakdown (`notSubmitted`/`pendingConfirmation`/`waitingForGrading`/`graded`), student gets enrolled courses + their own assignment statuses + `completionRate` (now based on `graded`, the new terminal status, not the removed `confirmed`). Opened `GET /reports/dashboard` from educator-only to any authenticated user (role-branched inside, matching the `courses`/`assignments` list convention from earlier tasks) and dropped the unused `group_progress`-view join from the old dashboard query (superseded by the richer per-assignment breakdown). Updated `CLAUDE.md`'s stale `/assignments/:id/assign` API-convention example to `/publish`, and documented the new dashboard shape.
+
+**Setup:** `docker compose up -d --build`, `localhost:5050`. Registered 1 educator + 1 student, verified via `psql`, logged in for real tokens.
+
+**Tests run (via curl against `localhost:5050/api/v1/reports`):**
+1. Course + enrollment + published individual assignment. Educator dashboard right after publish → 1 assignment, `notSubmitted:1`, all other counts 0. Student dashboard → `status:'not_submitted'`, `completionRate:0`.
+2. Student submits + confirms (self, individual path) → educator dashboard recount: `waitingForGrading:1`, `notSubmitted:0`.
+3. Educator grades → educator dashboard: `graded:1`. Student dashboard: `status:'graded'`, `completionRate:1`.
+4. `GET /reports?studentId=<self>` as the student → matches dashboard data. Same query as the educator (any student) → same data (educators can view any student's drill-down, unchanged from the original design). Student querying a different (fake) `studentId` → 403 FORBIDDEN (ownership check intact).
+
+**Result:** PASS — all 4 checks behaved as designed; no code changes needed after the first pass.
+
+**Cleanup:** `TRUNCATE` all test rows, deleted local token scratch file, `docker compose down`.
+
+---
+
+## 2026-08-22 — Course-centric refactor, Task 9: frontend routes & data-calling (browser-tested)
+
+**Context:** Same branch. Rewired the frontend for the new backend (Tasks 2-8): new routes/pages for course list/detail/enroll, assignment create with type+draft/publish, group self-assembly browse/join, leader confirm-all, and professor grade-per-submission. Updated `App.jsx` routing, `Layout.jsx` nav (dropped the old top-level "Groups" link — groups are assignment-scoped now, reached from an assignment's detail page). No visual redesign, reused existing Tailwind classes/components (`ConfirmDialog`, `useConfirm`, `ToastContext`, `AttachmentViewer`) throughout, per the task's explicit scope.
+
+New pages: `student/Courses.jsx` (browse+enroll+"my courses"), `student/CourseDetail.jsx` (roster+assignments, read-only), `educator/Courses.jsx` (list+create+active toggle), `educator/CourseDetail.jsx` (roster+assignments+"new assignment" link with `?courseId=` prefill).
+
+Rewritten: `student/Groups.jsx` (was manual create/add/remove-member; now assignment-scoped self-assembly - list open groups, join, leader confirm-all with the non-blocking-warning toast), `student/AssignmentDetail.jsx` (new 4-state status labels, group-vs-individual branching: hides self-confirm for group submissions, shows a join-a-group prompt when no submission row exists yet), `educator/AssignmentDetail.jsx` (dropped the dead assign-to-target section entirely, replaced with a status badge + Publish button + per-row Grade button), `educator/AssignmentForm.jsx` (course select, type select, conditional `numGroups` field, draft-vs-published guardrail disabling type/numGroups once published), `educator/EducatorDashboard.jsx` (new courses+per-assignment-breakdown shape), `educator/Reports.jsx` (dropped the group-lookup mode entirely - `GET /groups` list-all no longer exists since groups are ephemeral/assignment-scoped, so there's no way to enumerate them for a picker; kept the still-valid per-student lookup).
+
+**Pre-check:** `pnpm build` - clean, no errors, before any browser testing.
+
+**Browser testing note:** Root `CLAUDE.md` mandates gstack's `/browse` skill for all web browsing and forbids raw `mcp__claude-in-chrome__*` tools; this project's `CLAUDE.md` restricts skill invocation to `ponytail` only unless explicitly named - a genuine conflict. Asked the user directly; they chose `/browse` (satisfies both: explicit naming for this project, matches the root policy).
+
+**Setup:** `docker compose up -d --build` (postgres+backend, `localhost:5050`) + `pnpm dev` (Vite, `localhost:5173`, proxies `/api` to 5050). Registered 1 educator + 2 students via curl, verified via `psql`.
+
+**Tests run (live in Chromium via `/browse`, both roles, real login sessions):**
+1. Educator: create course -> appears in "Your Courses" and on course detail. "New assignment" from course detail correctly pre-fills `courseId`.
+2. Create individual assignment as draft -> Publish button shows, confirm dialog names the impact ("creates a submission for every enrolled student"). Published with 0 enrolled students at the time -> correctly 0 submissions, Publish button correctly disappears once published.
+3. Student: browse courses shows the new course: enroll -> moves from "Browse" to "Your Courses", disappears from browse. Dashboard (`GET /assignments`) shows the published assignment even before any submission row exists for this student (list doesn't depend on submissions).
+4. **Bug found and fixed live:** opened the individual assignment as a student who enrolled *after* it was published (so no fan-out row exists) - the page rendered the title/description but silently dropped the rest with no error, because `if (!assignment) return loadError ? ... : null` only checked `loadError` when `assignment` was null, and `assignment` was in fact set. Fixed: `loadError` now takes priority regardless of `assignment` state, and a missing submission on an individual (non-group) assignment renders an explanatory message instead of erroring, mirroring the existing group not-yet-joined UX. Verified via reload after the fix.
+5. Educator published a second individual assignment to the same course *after* the student was already enrolled -> fan-out worked, "Grade" button correctly withheld until `waiting_for_grading`.
+6. Student: checkbox submit -> `Pending confirmation` + Confirm button appears; clicked through the `ConfirmDialog` -> `Waiting for grading`. (Note: the app's own `<dialog>`-based `ConfirmDialog` isn't a native browser dialog, so `browse`'s `dialog-accept` doesn't apply to it - clicked the rendered Confirm button directly instead, via a `dialog button.bg-gray-900` CSS selector after an `@ref` click reported "matched multiple elements".)
+7. Educator: Grade button on the `waiting_for_grading` row -> `graded`. Dashboard breakdown and per-student `/reports` drill-down both reflected the change correctly (`Graded 1`, `completionRate: 100%`).
+8. Group assignment (`numGroups=1`, 2 enrolled students): published -> confirm dialog correctly named "randomly forms 1 group(s)". One student randomly seeded as leader. Second (non-leader) student: assignment detail showed "Browse and join a group" (no submission yet) -> group listing page showed the leader -> joined -> group listing updated to show both members, "View your group" now shown from assignment detail.
+9. Joined member submitted (checkbox) -> `Pending confirmation` + "Waiting for your group leader to confirm all submissions" message, **no self-confirm button shown** (`NOT_INDIVIDUAL` backend guard has a matching frontend guard).
+10. Leader (who never submitted their own row) called confirm-all -> non-blocking warning toast correctly reported "1 member(s) had not submitted", both rows including the leader's own swept to `waiting_for_grading` - confirmed on the educator's assignment detail page (both rows `waiting_for_grading` with Grade buttons).
+
+**Result:** PASS after one live fix (item 4). All 10 flows behaved as designed on the second pass.
+
+**Cleanup:** Stopped the `browse` daemon, killed the Vite dev server, `TRUNCATE`d all test rows, `docker compose down` - no lingering processes (verified via `ps aux`).

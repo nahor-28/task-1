@@ -12,12 +12,12 @@
 ## Email Verification
 - Brevo transactional email with a signed, time-limited verification token.
 - Token stored server-side keyed to the user (or a separate `email_verification_tokens` table if resend functionality is implemented — avoids mutating the `users` row on resend).
-- Unverified users can register and receive a token but are blocked from role-specific actions (creating a group, posting an assignment) until `email_verified = true`, enforced at the middleware layer.
+- Unverified users can register and receive a token but are blocked from role-specific actions (enrolling in a course, creating an assignment) until `email_verified = true`, enforced at the middleware layer.
 
 ## Authorization
 Two layers, both required — role check alone is insufficient:
 1. **Role check** — is this user a student or educator, does this route permit that role.
-2. **Ownership check** — e.g. a student can only confirm their own `submissions` row, not another student's; an educator can only edit an `assignments` row they created; a group leader check is required before member removal or group deletion.
+2. **Ownership check** — e.g. a student can only confirm their own `submissions` row, not another student's; an educator can only edit an `assignments` row they created; a group leader check is required before sweeping a group's submissions via confirm-all.
 
 Missing the ownership layer (role check only) is a common vulnerability class in role-based systems and is explicitly guarded against in every mutating endpoint — see `api.md` for per-endpoint authorization requirements.
 
@@ -43,7 +43,7 @@ All request bodies validated at the middleware layer before reaching controllers
 
 ## Database
 - All queries parameterized (`$1, $2...` placeholders via `pg`), never raw string interpolation — prevents SQL injection.
-- Foreign key constraints and CHECK constraints enforced at the database level, not application-only — see `schema.md`. This means even a bug in application logic cannot insert data that violates a relational invariant (e.g. an `assignment_targets` row with both `student_id` and `group_id` set).
+- Foreign key constraints and CHECK constraints enforced at the database level, not application-only — see `schema.md`. This means even a bug in application logic cannot insert data that violates a relational invariant (e.g. a group-type `assignments` row with `num_groups` left null, or a `submissions` row with a status value outside the 4-state enum).
 
 ## CORS
 Backend allows requests only from the known frontend origin (configured via env var, differs between local Docker and Railway prod) — not a wildcard `*`.
@@ -52,4 +52,4 @@ Backend allows requests only from the known frontend origin (configured via env 
 - No JWT revocation/refresh mechanism.
 - No rate-limit persistence across server restarts (in-memory store; acceptable for single-instance assessment deployment, would need Redis-backed store for horizontal scaling).
 - No formal automated security testing (e.g. dependency vulnerability scanning) — out of scope for assessment timeline.
-- Group invite flow is direct-add (no accept/decline), meaning any group member with leader-equivalent add permission can add a student to a group without their consent. Documented as a deferred feature, not an unnoticed gap — see `claude.md` for the planned schema extension if implemented later.
+- No minimum-group-size enforcement server-side — a group can be confirmed with just its seeded leader and no other members. The "at least 2 members" nudge is UI-only (non-blocking), a deliberate scope decision, not an oversight — see `CLAUDE.md`.

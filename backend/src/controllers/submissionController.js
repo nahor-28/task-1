@@ -1,10 +1,11 @@
-import { listForAssignment, getMine, submit, confirm } from '../services/submissionService.js';
+import { listForAssignment, getMine, submit, confirm, grade } from '../services/submissionService.js';
 
 const ERROR_RESPONSES = {
   ASSIGNMENT_NOT_FOUND: [404, 'Assignment not found'],
   SUBMISSION_NOT_FOUND: [404, 'Submission not found'],
   FORBIDDEN: [403, 'Forbidden'],
   INVALID_STATE: [409, 'Submission is not in the expected state for this action'],
+  NOT_INDIVIDUAL: [409, 'Group submissions are confirmed by the leader, not individually'],
 };
 
 function sendSubmissionError(res, code) {
@@ -51,6 +52,18 @@ export async function submitHandler(req, res, next) {
 export async function confirmHandler(req, res, next) {
   try {
     const result = await confirm(req.params.id, req.user.id);
+    if (result.error) {
+      return sendSubmissionError(res, result.error);
+    }
+    res.json({ status: result.status });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function gradeHandler(req, res, next) {
+  try {
+    const result = await grade(req.params.id, req.user.id);
     if (result.error) {
       return sendSubmissionError(res, result.error);
     }
