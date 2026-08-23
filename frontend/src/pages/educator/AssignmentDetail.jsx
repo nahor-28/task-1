@@ -6,6 +6,7 @@ import { useConfirm } from '../../hooks/useConfirm.js';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
 import { AttachmentViewer } from '../../components/AttachmentViewer.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
+import { StatusBadge } from '../../components/StatusBadge.jsx';
 
 export function AssignmentDetail() {
   const { id } = useParams();
@@ -15,6 +16,7 @@ export function AssignmentDetail() {
   const [assignment, setAssignment] = useState(null);
   const [submissions, setSubmissions] = useState([]);
   const [loadError, setLoadError] = useState('');
+  const [gradingId, setGradingId] = useState(null);
   const { confirm, dialogProps } = useConfirm();
 
   async function load() {
@@ -46,12 +48,15 @@ export function AssignmentDetail() {
   }
 
   async function doGrade(submissionId) {
+    setGradingId(submissionId);
     try {
       await api.patch(`/submissions/${submissionId}/grade`, undefined, token);
       toast.success('Marked graded.');
       await load();
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setGradingId(null);
     }
   }
 
@@ -76,56 +81,68 @@ export function AssignmentDetail() {
     confirm('Publish assignment?', `Publish "${assignment.title}"? ${impact} This cannot be undone.`, doPublish);
   }
 
-  if (!assignment) return loadError ? <p className="text-sm text-red-600">{loadError}</p> : null;
+  if (loadError) return <div className="alert alert-error"><span>{loadError}</span></div>;
+  if (!assignment) return <div className="space-y-6"><div className="skeleton h-40 rounded-box" /><div className="skeleton h-56 rounded-box" /></div>;
 
   return (
     <div className="space-y-6">
       <ConfirmDialog {...dialogProps} />
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <div className="flex items-center justify-between mb-2">
-          <div>
-            <h1 className="text-lg font-semibold text-gray-900">{assignment.title}</h1>
-            <p className="text-xs text-gray-500 mt-1">
-              {assignment.type === 'group' ? `Group (${assignment.numGroups} groups)` : 'Individual'} · {assignment.status}
-            </p>
+      <div className="card bg-base-100 shadow-sm border border-base-300">
+        <div className="card-body">
+          <div className="flex items-center justify-between gap-4 flex-wrap mb-2">
+            <div>
+              <h1 className="text-lg font-semibold text-base-content">{assignment.title}</h1>
+              <p className="text-xs text-base-content/60 mt-1">
+                {assignment.type === 'group' ? `Group (${assignment.numGroups} groups)` : 'Individual'}
+                {' · '}
+                <span className="capitalize">{assignment.status}</span>
+              </p>
+            </div>
+            <div className="flex gap-2 items-center">
+              {assignment.status === 'draft' && (
+                <button onClick={handlePublish} className="btn btn-primary btn-sm">
+                  Publish
+                </button>
+              )}
+              <Link to={`/educator/assignments/${id}/edit`} className="btn btn-ghost btn-sm">Edit</Link>
+              <button onClick={handleDelete} className="btn btn-ghost btn-sm text-error">Delete</button>
+            </div>
           </div>
-          <div className="flex gap-2 items-center">
-            {assignment.status === 'draft' && (
-              <button onClick={handlePublish} className="bg-gray-900 text-white text-sm rounded px-4 py-2">
-                Publish
-              </button>
-            )}
-            <Link to={`/educator/assignments/${id}/edit`} className="text-sm text-gray-600 underline">Edit</Link>
-            <button onClick={handleDelete} className="text-sm text-red-600">Delete</button>
-          </div>
+          <p className="text-sm text-base-content/60 mb-2">Due {new Date(assignment.dueDate).toLocaleDateString()}</p>
+          <p className="text-sm text-base-content/80 mb-3">{assignment.description}</p>
+          <AttachmentViewer url={assignment.attachmentUrl} />
         </div>
-        <p className="text-sm text-gray-500 mb-2">Due {new Date(assignment.dueDate).toLocaleDateString()}</p>
-        <p className="text-sm text-gray-700 mb-3">{assignment.description}</p>
-        <AttachmentViewer url={assignment.attachmentUrl} />
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h2 className="font-medium text-gray-900 mb-3">Submission status</h2>
-        {submissions.length === 0 && (
-          <p className="text-sm text-gray-500">
-            {assignment.status === 'draft' ? 'Publish this assignment to see submissions.' : 'No submissions yet.'}
-          </p>
-        )}
-        <ul className="space-y-1">
-          {submissions.map((s) => (
-            <li key={s.id} className="flex items-center justify-between text-sm text-gray-700">
-              <span>{s.studentName}</span>
-              <span className="flex items-center gap-2">
-                <span className="font-medium text-gray-900">{s.status}</span>
-                {s.status === 'waiting_for_grading' && (
-                  <button onClick={() => doGrade(s.id)} className="text-xs bg-gray-900 text-white rounded px-2 py-1">
-                    Grade
-                  </button>
-                )}
-              </span>
-            </li>
-          ))}
-        </ul>
+      <div className="card bg-base-100 shadow-sm border border-base-300">
+        <div className="card-body">
+          <h2 className="font-medium text-base-content mb-3">Submission status</h2>
+          {submissions.length === 0 && (
+            <p className="text-sm text-base-content/60">
+              {assignment.status === 'draft' ? 'Publish this assignment to see submissions.' : 'No submissions yet.'}
+            </p>
+          )}
+          <ul className="flex flex-col divide-y divide-base-300">
+            {submissions.map((s) => (
+              <li key={s.id} className="flex items-center justify-between gap-4 py-3">
+                <span className="text-sm text-base-content">{s.studentName}</span>
+                <span className="flex items-center gap-2">
+                  <StatusBadge status={s.status} />
+                  {s.status === 'waiting_for_grading' && (
+                    <button
+                      onClick={() => doGrade(s.id)}
+                      disabled={gradingId === s.id}
+                      className="btn btn-primary btn-xs"
+                    >
+                      {gradingId === s.id && <span className="loading loading-spinner loading-xs" />}
+                      Grade
+                    </button>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </div>
   );
