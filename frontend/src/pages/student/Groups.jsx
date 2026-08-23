@@ -11,12 +11,15 @@ export function Groups() {
   const { token, user } = useAuth();
   const toast = useToast();
   const [groups, setGroups] = useState([]);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
+  const [joiningId, setJoiningId] = useState(null);
   const { confirm, dialogProps } = useConfirm();
 
   async function load() {
     try {
       setGroups(await api.get(`/assignments/${id}/groups`, token));
+      setLoaded(true);
     } catch (err) {
       setError(err.message);
     }
@@ -28,12 +31,15 @@ export function Groups() {
   }, [id, token]);
 
   async function join(groupId) {
+    setJoiningId(groupId);
     try {
       await api.post(`/assignments/${id}/groups/${groupId}/join`, undefined, token);
       toast.success('Joined group.');
       await load();
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setJoiningId(null);
     }
   }
 
@@ -51,7 +57,17 @@ export function Groups() {
     }
   }
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
+  if (error) return <div className="alert alert-error"><span>{error}</span></div>;
+
+  if (!loaded) {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="skeleton h-32 rounded-box" />
+        ))}
+      </div>
+    );
+  }
 
   const myGroup = groups.find((g) => g.members.some((m) => m.id === user.id));
   const myRole = myGroup?.members.find((m) => m.id === user.id)?.role;
@@ -60,57 +76,63 @@ export function Groups() {
     <div>
       <ConfirmDialog {...dialogProps} />
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-lg font-semibold text-gray-900">Groups</h1>
-        <Link to={`/student/assignments/${id}`} className="text-sm text-gray-600 underline">
+        <h1 className="text-xl font-semibold text-base-content">Groups</h1>
+        <Link to={`/student/assignments/${id}`} className="link link-primary text-sm">
           Back to assignment
         </Link>
       </div>
 
       {myGroup && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-          <p className="text-sm text-gray-800 mb-2">
-            You're in <span className="font-medium">{myGroup.name}</span>
-            {myRole === 'leader' ? ' as leader' : ''}.
-          </p>
-          {myRole === 'leader' && (
-            <button
-              onClick={() =>
-                confirm(
-                  'Confirm all submissions?',
-                  "This confirms every member's submission, including anyone who hasn't submitted yet. This cannot be undone.",
-                  () => confirmAll(myGroup.id),
-                )
-              }
-              className="bg-gray-900 text-white text-sm rounded px-4 py-2"
-            >
-              Confirm all submissions
-            </button>
-          )}
+        <div className="alert alert-info alert-soft mb-6 items-start">
+          <div className="flex-1">
+            <p className="text-sm mb-2">
+              You're in <span className="font-medium">{myGroup.name}</span>
+              {myRole === 'leader' ? ' as leader' : ''}.
+            </p>
+            {myRole === 'leader' && (
+              <button
+                onClick={() =>
+                  confirm(
+                    'Confirm all submissions?',
+                    "This confirms every member's submission, including anyone who hasn't submitted yet. This cannot be undone.",
+                    () => confirmAll(myGroup.id),
+                  )
+                }
+                className="btn btn-primary btn-sm"
+              >
+                Confirm all submissions
+              </button>
+            )}
+          </div>
         </div>
       )}
 
-      <ul className="space-y-2">
+      {groups.length === 0 && <p className="text-sm text-base-content/60">No groups yet.</p>}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {groups.map((g) => (
-          <li key={g.id} className="bg-white border border-gray-200 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="font-medium text-gray-900">{g.name}</p>
-              {!myGroup && (
-                <button onClick={() => join(g.id)} className="bg-gray-900 text-white text-sm rounded px-3 py-1">
-                  Join
-                </button>
-              )}
+          <div key={g.id} className="card bg-base-100 shadow-sm border border-base-300">
+            <div className="card-body">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <h3 className="card-title text-base">{g.name}</h3>
+                {!myGroup && (
+                  <button onClick={() => join(g.id)} disabled={joiningId === g.id} className="btn btn-primary btn-sm">
+                    {joiningId === g.id && <span className="loading loading-spinner loading-xs" />}
+                    Join
+                  </button>
+                )}
+              </div>
+              <ul className="flex flex-col gap-1">
+                {g.members.map((m) => (
+                  <li key={m.id} className="text-sm text-base-content/80 flex items-center gap-2">
+                    {m.name}
+                    {m.role === 'leader' && <span className="badge badge-primary badge-soft badge-sm">Leader</span>}
+                  </li>
+                ))}
+              </ul>
             </div>
-            <ul className="text-sm text-gray-600">
-              {g.members.map((m) => (
-                <li key={m.id}>
-                  {m.name}
-                  {m.role === 'leader' ? ' (leader)' : ''}
-                </li>
-              ))}
-            </ul>
-          </li>
+          </div>
         ))}
-      </ul>
+      </div>
     </div>
   );
 }
