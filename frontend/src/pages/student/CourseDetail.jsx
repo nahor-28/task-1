@@ -13,43 +13,65 @@ export function CourseDetail() {
     api.get(`/courses/${id}`, token).then(setCourse).catch((err) => setError(err.message));
   }, [id, token]);
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
-  if (!course) return null;
+  if (error) return <div className="alert alert-error"><span>{error}</span></div>;
+
+  if (!course) {
+    return (
+      <div className="space-y-6">
+        <div className="skeleton h-20 rounded-box" />
+        <div className="skeleton h-40 rounded-box" />
+        <div className="skeleton h-32 rounded-box" />
+      </div>
+    );
+  }
 
   const published = course.assignments.filter((a) => a.status === 'published');
 
   return (
     <div className="space-y-6">
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h1 className="text-lg font-semibold text-gray-900">{course.title}</h1>
-        {course.description && <p className="text-sm text-gray-700 mt-1">{course.description}</p>}
+      <div className="card bg-base-100 shadow-sm border border-base-300">
+        <div className="card-body">
+          <h1 className="card-title">{course.title}</h1>
+          {course.description && <p className="text-sm text-base-content/70">{course.description}</p>}
+        </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h2 className="font-medium text-gray-900 mb-3">Assignments</h2>
-        {published.length === 0 && <p className="text-sm text-gray-500">No assignments yet.</p>}
-        <ul className="space-y-2">
-          {published.map((a) => (
-            <li key={a.id}>
-              <Link
-                to={`/student/assignments/${a.id}`}
-                className="block border border-gray-200 rounded-lg p-3 hover:border-gray-400 text-sm"
-              >
-                <span className="font-medium text-gray-900">{a.title}</span>
-                <span className="text-gray-500"> — due {new Date(a.dueDate).toLocaleDateString()}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+      <div className="card bg-base-100 shadow-sm border border-base-300">
+        <div className="card-body">
+          <h2 className="font-medium text-base-content mb-3">Assignments</h2>
+          {published.length === 0 && <p className="text-sm text-base-content/60">No assignments yet.</p>}
+          <ul className="flex flex-col gap-2">
+            {published.map((a) => {
+              const overdue = new Date(a.dueDate) < new Date();
+              return (
+                <li key={a.id}>
+                  <Link
+                    to={`/student/assignments/${a.id}`}
+                    className="flex items-center justify-between gap-4 border border-base-300 rounded-box p-3 transition-colors hover:border-primary/40"
+                  >
+                    <span className="font-medium text-base-content text-sm">{a.title}</span>
+                    <span className="flex items-center gap-2 text-xs text-base-content/60">
+                      Due {new Date(a.dueDate).toLocaleDateString()}
+                      {overdue && <span className="badge badge-error badge-soft badge-sm">Overdue</span>}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h2 className="font-medium text-gray-900 mb-3">Roster</h2>
-        <ul className="space-y-1">
-          {course.roster.map((s) => (
-            <li key={s.id} className="text-sm text-gray-700">{s.name}</li>
-          ))}
-        </ul>
+      <div className="card bg-base-100 shadow-sm border border-base-300">
+        <div className="card-body">
+          <h2 className="font-medium text-base-content mb-3">Roster</h2>
+          {course.roster.length === 0 && <p className="text-sm text-base-content/60">No students enrolled yet.</p>}
+          <ul className="flex flex-col gap-1">
+            {course.roster.map((s) => (
+              <li key={s.id} className="text-sm text-base-content/80">{s.name}</li>
+            ))}
+          </ul>
+        </div>
       </div>
     </div>
   );
