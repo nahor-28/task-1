@@ -2,8 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import { ProtectedRoute } from './components/ProtectedRoute.jsx';
 import { Layout } from './components/Layout.jsx';
-import { Login } from './pages/Login.jsx';
-import { Register } from './pages/Register.jsx';
+import { Auth } from './pages/Auth.jsx';
 import { VerifyEmail } from './pages/VerifyEmail.jsx';
 import { StudentDashboard } from './pages/student/StudentDashboard.jsx';
 import { Courses as StudentCourses } from './pages/student/Courses.jsx';
@@ -28,8 +27,8 @@ function Home() {
 export default function App() {
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
+      <Route path="/login" element={<Auth />} />
+      <Route path="/register" element={<Auth />} />
       <Route path="/verify" element={<VerifyEmail />} />
 
       <Route element={<Layout />}>

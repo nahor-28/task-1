@@ -1,1 +1,41 @@
 @import "tailwindcss";
+@plugin "daisyui";
+@plugin "daisyui/theme" {
+  name: "campus";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: #ffffff;
+  --color-base-200: #f5f4fb;
+  --color-base-300: #e9e7f6;
+  --color-base-content: #201f33;
+  --color-primary: #6d5bd0;
+  --color-primary-content: #ffffff;
+  --color-secondary: #a78bfa;
+  --color-secondary-content: #ffffff;
+  --color-accent: #22c55e;
+  --color-accent-content: #ffffff;
+  --color-neutral: #201f33;
+  --color-neutral-content: #ffffff;
+  --color-info: #3b82f6;
+  --color-info-content: #ffffff;
+  --color-success: #16a34a;
+  --color-success-content: #ffffff;
+  --color-warning: #d97706;
+  --color-warning-content: #ffffff;
+  --color-error: #dc2626;
+  --color-error-content: #ffffff;
+
+  --radius-selector: 1rem;
+  --radius-field: 0.5rem;
+  --radius-box: 1rem;
+
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+
+  --border: 1px;
+
+  --depth: 1;
+  --noise: 0;
+}
