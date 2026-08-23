@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const ICONS = {
@@ -44,10 +45,22 @@ function initials(name) {
 export function Layout() {
   const { user, logout } = useAuth();
   const items = NAV_ITEMS[user?.role] ?? [];
+  const location = useLocation();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [location.pathname]);
 
   return (
     <div className="drawer lg:drawer-open">
-      <input id="app-drawer" type="checkbox" className="drawer-toggle" />
+      <input
+        id="app-drawer"
+        type="checkbox"
+        className="drawer-toggle"
+        checked={drawerOpen}
+        onChange={(e) => setDrawerOpen(e.target.checked)}
+      />
       <div className="drawer-content flex flex-col min-h-screen bg-base-200">
         <div className="navbar bg-base-100 border-b border-base-300 lg:hidden">
           <label htmlFor="app-drawer" className="btn btn-square btn-ghost" aria-label="Open menu">
