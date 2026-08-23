@@ -10,12 +10,15 @@ export function Courses() {
   const { token } = useAuth();
   const toast = useToast();
   const [courses, setCourses] = useState([]);
+  const [loaded, setLoaded] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [creating, setCreating] = useState(false);
   const { confirm, dialogProps } = useConfirm();
 
   async function load() {
     setCourses(await api.get('/courses/mine', token));
+    setLoaded(true);
   }
 
   useEffect(() => {
@@ -24,6 +27,7 @@ export function Courses() {
   }, [token]);
 
   async function createCourse() {
+    setCreating(true);
     try {
       await api.post('/courses', { title, description: description || undefined }, token);
       toast.success('Course created.');
@@ -32,6 +36,8 @@ export function Courses() {
       await load();
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -46,61 +52,90 @@ export function Courses() {
   }
 
   return (
-    <div>
+    <div className="space-y-8">
       <ConfirmDialog {...dialogProps} />
-      <h1 className="text-lg font-semibold text-gray-900 mb-4">Your Courses</h1>
-      <ul className="space-y-2 mb-6">
-        {courses.map((c) => (
-          <li key={c.id} className="bg-white border border-gray-200 rounded-lg p-4 flex items-center justify-between">
-            <Link to={`/educator/courses/${c.id}`} className="flex-1 hover:text-gray-900">
-              <p className="font-medium text-gray-900">
-                {c.title}
-                {!c.active ? ' (inactive)' : ''}
-              </p>
-              {c.description && <p className="text-sm text-gray-500">{c.description}</p>}
-            </Link>
-            <button
-              onClick={() =>
-                confirm(
-                  c.active ? 'Deactivate course?' : 'Activate course?',
-                  `${c.active ? 'Hide' : 'Show'} "${c.title}" ${c.active ? 'from' : 'to'} students browsing to enroll?`,
-                  () => toggleActive(c),
-                )
-              }
-              className="text-xs text-gray-600 underline ml-4"
-            >
-              {c.active ? 'Deactivate' : 'Activate'}
-            </button>
-          </li>
-        ))}
-        {courses.length === 0 && <p className="text-sm text-gray-500">No courses yet.</p>}
-      </ul>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          confirm('Create course?', `Create "${title}"?`, createCourse);
-        }}
-        className="bg-white border border-gray-200 rounded-lg p-4 max-w-md"
-      >
-        <label className="block text-sm text-gray-600 mb-1">Title</label>
-        <input
-          required
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          className="w-full border border-gray-300 rounded px-3 py-2 mb-3 text-sm"
-        />
-        <label className="block text-sm text-gray-600 mb-1">Description (optional)</label>
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          rows={2}
-          className="w-full border border-gray-300 rounded px-3 py-2 mb-3 text-sm"
-        />
-        <button type="submit" className="bg-gray-900 text-white text-sm rounded px-4 py-2">
-          Create course
-        </button>
-      </form>
+      <div>
+        <h1 className="text-xl font-semibold text-base-content mb-4">Your courses</h1>
+        {!loaded && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="skeleton h-32 rounded-box" />
+            ))}
+          </div>
+        )}
+        {loaded && courses.length === 0 && <p className="text-sm text-base-content/60">No courses yet.</p>}
+        {loaded && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {courses.map((c) => (
+              <div key={c.id} className="card bg-base-100 shadow-sm border border-base-300">
+                <div className="card-body">
+                  <div className="flex items-start justify-between gap-2">
+                    <Link to={`/educator/courses/${c.id}`} className="card-title text-base hover:text-primary">
+                      {c.title}
+                    </Link>
+                    {!c.active && <span className="badge badge-ghost badge-sm">Inactive</span>}
+                  </div>
+                  {c.description && <p className="text-sm text-base-content/60 line-clamp-2">{c.description}</p>}
+                  <div className="card-actions justify-end mt-2">
+                    <button
+                      onClick={() =>
+                        confirm(
+                          c.active ? 'Deactivate course?' : 'Activate course?',
+                          `${c.active ? 'Hide' : 'Show'} "${c.title}" ${c.active ? 'from' : 'to'} students browsing to enroll?`,
+                          () => toggleActive(c),
+                        )
+                      }
+                      className="btn btn-ghost btn-xs"
+                    >
+                      {c.active ? 'Deactivate' : 'Activate'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card bg-base-100 shadow-sm border border-base-300 max-w-md">
+        <div className="card-body">
+          <h2 className="font-medium text-base-content mb-2">Create a course</h2>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              confirm('Create course?', `Create "${title}"?`, createCourse);
+            }}
+            className="flex flex-col gap-4"
+          >
+            <div>
+              <label className="label" htmlFor="course-title">Title</label>
+              <input
+                id="course-title"
+                required
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="input validator w-full"
+              />
+              <p className="validator-hint">Title is required</p>
+            </div>
+            <div>
+              <label className="label" htmlFor="course-description">Description (optional)</label>
+              <textarea
+                id="course-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
+                className="textarea w-full"
+              />
+            </div>
+            <button type="submit" disabled={creating} className="btn btn-primary self-start">
+              {creating && <span className="loading loading-spinner loading-sm" />}
+              Create course
+            </button>
+          </form>
+        </div>
+      </div>
     </div>
   );
 }
