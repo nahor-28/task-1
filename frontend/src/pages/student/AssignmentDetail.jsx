@@ -6,13 +6,28 @@ import { useConfirm } from '../../hooks/useConfirm.js';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
 import { AttachmentViewer } from '../../components/AttachmentViewer.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
+import { StatusBadge } from '../../components/StatusBadge.jsx';
 
+const STATUS_ORDER = ['not_submitted', 'pending_confirmation', 'waiting_for_grading', 'graded'];
 const STATUS_LABEL = {
   not_submitted: 'Not submitted',
   pending_confirmation: 'Pending confirmation',
   waiting_for_grading: 'Waiting for grading',
   graded: 'Graded',
 };
+
+function SubmissionSteps({ status }) {
+  const currentIndex = STATUS_ORDER.indexOf(status);
+  return (
+    <ul className="steps steps-vertical sm:steps-horizontal w-full">
+      {STATUS_ORDER.map((s, i) => (
+        <li key={s} className={`step text-sm ${i <= currentIndex ? 'step-primary' : ''}`}>
+          {STATUS_LABEL[s]}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export function AssignmentDetail() {
   const { id } = useParams();
@@ -72,85 +87,96 @@ export function AssignmentDetail() {
     }
   }
 
-  if (loadError) return <p className="text-sm text-red-600">{loadError}</p>;
-  if (!assignment) return null;
+  if (loadError) return <div className="alert alert-error"><span>{loadError}</span></div>;
+  if (!assignment) return <div className="skeleton h-64 rounded-box" />;
 
   const isGroup = assignment.type === 'group';
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6">
+    <div className="card bg-base-100 shadow-sm border border-base-300">
       <ConfirmDialog {...dialogProps} />
-      <h1 className="text-lg font-semibold text-gray-900">{assignment.title}</h1>
-      <p className="text-sm text-gray-500 mb-1">Due {new Date(assignment.dueDate).toLocaleDateString()}</p>
-      <p className="text-sm text-gray-700 mb-4">{assignment.description}</p>
-      <AttachmentViewer url={assignment.attachmentUrl} />
+      <div className="card-body">
+        <div className="flex items-start justify-between gap-4 mb-1">
+          <h1 className="text-lg font-semibold text-base-content">{assignment.title}</h1>
+          {submission && <StatusBadge status={submission.status} />}
+        </div>
+        <p className="text-sm text-base-content/60 mb-2">Due {new Date(assignment.dueDate).toLocaleDateString()}</p>
+        <p className="text-sm text-base-content/80 mb-4">{assignment.description}</p>
+        <AttachmentViewer url={assignment.attachmentUrl} />
 
-      {isGroup && (
-        <p className="mt-4 text-sm">
-          <Link to={`/student/assignments/${id}/groups`} className="text-blue-700 underline">
-            {submission ? 'View your group' : 'Browse and join a group'}
-          </Link>
-        </p>
-      )}
-
-      {isGroup && !submission && (
-        <p className="mt-2 text-sm text-gray-500">Join a group above before you can submit.</p>
-      )}
-
-      {!isGroup && !submission && (
-        <p className="mt-4 text-sm text-gray-500">
-          No submission found for this assignment — this can happen if you enrolled after it was
-          published. Contact your instructor if you think this is a mistake.
-        </p>
-      )}
-
-      {submission && (
-        <>
-          {assignment.onedriveLink && submission.status !== 'graded' && (
-            <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm text-gray-800 mb-2">
-                {submission.status === 'not_submitted'
-                  ? 'Upload your completed work to the OneDrive folder below.'
-                  : "Need to fix something? You can still reopen the folder and re-upload before it's confirmed."}
-              </p>
-              <a href={assignment.onedriveLink} target="_blank" rel="noreferrer" className="text-sm text-blue-700 underline">
-                Open OneDrive upload folder
-              </a>
-            </div>
-          )}
-
-          {submission.status === 'not_submitted' && (
-            <label className="flex items-center gap-2 mt-4 text-sm text-gray-700">
-              <input type="checkbox" checked={false} disabled={busy} onChange={handleAck} />
-              I confirm I have completed and submitted this assignment
-            </label>
-          )}
-
-          <hr className="my-4 border-gray-200" />
-
-          <p className="text-sm text-gray-600 mb-3">
-            Status: <span className="font-medium text-gray-900">{STATUS_LABEL[submission.status]}</span>
+        {isGroup && (
+          <p className="mt-4 text-sm">
+            <Link to={`/student/assignments/${id}/groups`} className="link link-primary">
+              {submission ? 'View your group' : 'Browse and join a group'}
+            </Link>
           </p>
+        )}
 
-          {submission.status === 'pending_confirmation' && !isGroup && (
-            <button
-              onClick={() => confirm('Confirm submission?', 'This is the final step and cannot be undone.', doConfirm)}
-              disabled={busy}
-              className="bg-gray-900 text-white text-sm rounded px-4 py-2 disabled:opacity-50"
-            >
-              Confirm submission
-            </button>
-          )}
-          {submission.status === 'pending_confirmation' && isGroup && (
-            <p className="text-sm text-gray-500">Waiting for your group leader to confirm all submissions.</p>
-          )}
-          {submission.status === 'graded' && (
-            <p className="text-sm text-green-700">
-              Graded{submission.gradedAt ? ` on ${new Date(submission.gradedAt).toLocaleDateString()}` : ''}.
-            </p>
-          )}
-        </>
-      )}
+        {isGroup && !submission && (
+          <p className="mt-2 text-sm text-base-content/60">Join a group above before you can submit.</p>
+        )}
+
+        {!isGroup && !submission && (
+          <p className="mt-4 text-sm text-base-content/60">
+            No submission found for this assignment — this can happen if you enrolled after it was
+            published. Contact your instructor if you think this is a mistake.
+          </p>
+        )}
+
+        {submission && (
+          <>
+            {assignment.onedriveLink && submission.status !== 'graded' && (
+              <div className="alert alert-info alert-soft mt-4 items-start">
+                <div>
+                  <p className="text-sm mb-1">
+                    {submission.status === 'not_submitted'
+                      ? 'Upload your completed work to the OneDrive folder below.'
+                      : "Need to fix something? You can still reopen the folder and re-upload before it's confirmed."}
+                  </p>
+                  <a href={assignment.onedriveLink} target="_blank" rel="noreferrer" className="link font-medium text-sm">
+                    Open OneDrive upload folder
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {submission.status === 'not_submitted' && (
+              <label className="flex items-center gap-2 mt-4 text-sm text-base-content cursor-pointer">
+                <input type="checkbox" checked={false} disabled={busy} onChange={handleAck} className="checkbox checkbox-primary checkbox-sm" />
+                I confirm I have completed and submitted this assignment
+              </label>
+            )}
+
+            <div className="divider" />
+
+            <SubmissionSteps status={submission.status} />
+
+            {submission.status === 'pending_confirmation' && !isGroup && (
+              <button
+                onClick={() => confirm('Confirm submission?', 'This is the final step and cannot be undone.', doConfirm)}
+                disabled={busy}
+                className="btn btn-primary mt-4 self-start"
+              >
+                {busy && <span className="loading loading-spinner loading-sm" />}
+                Confirm submission
+              </button>
+            )}
+            {submission.status === 'pending_confirmation' && isGroup && (
+              <p className="text-sm text-base-content/60 mt-4">Waiting for your group leader to confirm all submissions.</p>
+            )}
+            {submission.status === 'graded' && (
+              <div className="alert alert-success alert-soft mt-4">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-5 shrink-0">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+                <span className="text-sm">
+                  Graded{submission.gradedAt ? ` on ${new Date(submission.gradedAt).toLocaleDateString()}` : ''}.
+                </span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
