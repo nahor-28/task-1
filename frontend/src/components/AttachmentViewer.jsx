@@ -4,14 +4,14 @@ export function AttachmentViewer({ url }) {
 
   return (
     <div>
-      <a href={url} target="_blank" rel="noreferrer" className="text-sm text-gray-900 underline">
+      <a href={url} target="_blank" rel="noreferrer" className="link link-primary text-sm">
         {isPdf ? 'Open attachment' : 'Download attachment'}
       </a>
       {isPdf && (
         <iframe
           src={url}
           title="Attachment preview"
-          className="mt-2 w-full h-96 border border-gray-200 rounded"
+          className="mt-2 w-full h-96 border border-base-300 rounded-box"
         />
       )}
     </div>
