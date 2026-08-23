@@ -95,64 +95,121 @@ export function AssignmentForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-lg p-6 max-w-lg">
-      <ConfirmDialog {...dialogProps} />
-      <h1 className="text-lg font-semibold text-gray-900 mb-4">{isEdit ? 'Edit Assignment' : 'New Assignment'}</h1>
+    <div className="card bg-base-100 shadow-sm border border-base-300 max-w-lg">
+      <div className="card-body">
+        <ConfirmDialog {...dialogProps} />
+        <h1 className="text-lg font-semibold text-base-content mb-4">{isEdit ? 'Edit Assignment' : 'New Assignment'}</h1>
 
-      <label className="block text-sm text-gray-600 mb-1">Course</label>
-      <select
-        required
-        disabled={isEdit}
-        value={form.courseId}
-        onChange={update('courseId')}
-        className="w-full border border-gray-300 rounded px-3 py-2 mb-4 text-sm disabled:bg-gray-100"
-      >
-        <option value="" disabled>Select a course</option>
-        {courses.map((c) => (
-          <option key={c.id} value={c.id}>{c.title}</option>
-        ))}
-      </select>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div>
+            <label className="label" htmlFor="a-course">Course</label>
+            <select
+              id="a-course"
+              required
+              disabled={isEdit}
+              value={form.courseId}
+              onChange={update('courseId')}
+              className="select w-full"
+            >
+              <option value="" disabled>Select a course</option>
+              {courses.map((c) => (
+                <option key={c.id} value={c.id}>{c.title}</option>
+              ))}
+            </select>
+          </div>
 
-      <label className="block text-sm text-gray-600 mb-1">Title</label>
-      <input required value={form.title} onChange={update('title')} className="w-full border border-gray-300 rounded px-3 py-2 mb-4 text-sm" />
-      <label className="block text-sm text-gray-600 mb-1">Description</label>
-      <textarea required value={form.description} onChange={update('description')} rows={4} className="w-full border border-gray-300 rounded px-3 py-2 mb-4 text-sm" />
-      <label className="block text-sm text-gray-600 mb-1">Due date</label>
-      <input required type="date" value={form.dueDate} onChange={update('dueDate')} className="w-full border border-gray-300 rounded px-3 py-2 mb-4 text-sm" />
-      <label className="block text-sm text-gray-600 mb-1">OneDrive link (optional)</label>
-      <input value={form.onedriveLink} onChange={update('onedriveLink')} className="w-full border border-gray-300 rounded px-3 py-2 mb-4 text-sm" />
+          <div>
+            <label className="label" htmlFor="a-title">Title</label>
+            <input id="a-title" required value={form.title} onChange={update('title')} className="input validator w-full" />
+            <p className="validator-hint">Title is required</p>
+          </div>
 
-      <label className="block text-sm text-gray-600 mb-1">Type</label>
-      <select
-        disabled={isPublished}
-        value={form.type}
-        onChange={update('type')}
-        className="w-full border border-gray-300 rounded px-3 py-2 mb-4 text-sm disabled:bg-gray-100"
-      >
-        <option value="individual">Individual</option>
-        <option value="group">Group</option>
-      </select>
-      {form.type === 'group' && (
-        <>
-          <label className="block text-sm text-gray-600 mb-1">Number of groups</label>
-          <input
-            required
-            disabled={isPublished}
-            type="number"
-            min="1"
-            value={form.numGroups}
-            onChange={update('numGroups')}
-            className="w-full border border-gray-300 rounded px-3 py-2 mb-4 text-sm disabled:bg-gray-100"
-          />
-        </>
-      )}
-      {isPublished && <p className="text-xs text-gray-500 mb-4">Type and group count are locked after publishing.</p>}
+          <div>
+            <label className="label" htmlFor="a-description">Description</label>
+            <textarea
+              id="a-description"
+              required
+              value={form.description}
+              onChange={update('description')}
+              rows={4}
+              className="textarea w-full"
+            />
+          </div>
 
-      <label className="block text-sm text-gray-600 mb-1">Attachment (PDF/DOCX, optional)</label>
-      <input type="file" accept=".pdf,.docx" onChange={(e) => setFile(e.target.files[0])} className="w-full text-sm mb-6" />
-      <button type="submit" disabled={loading} className="bg-gray-900 text-white text-sm rounded px-4 py-2 disabled:opacity-50">
-        {loading ? 'Saving...' : 'Save'}
-      </button>
-    </form>
+          <div>
+            <label className="label" htmlFor="a-due">Due date</label>
+            <input id="a-due" required type="date" value={form.dueDate} onChange={update('dueDate')} className="input w-full" />
+          </div>
+
+          <div>
+            <label className="label" htmlFor="a-onedrive">OneDrive link (optional)</label>
+            <input
+              id="a-onedrive"
+              type="url"
+              value={form.onedriveLink}
+              onChange={update('onedriveLink')}
+              className="input validator w-full"
+              placeholder="https://..."
+            />
+            <p className="validator-hint">Enter a valid URL</p>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="a-type">Type</label>
+            <div className="join w-full" id="a-type">
+              <button
+                type="button"
+                disabled={isPublished}
+                className={`btn join-item flex-1 ${form.type === 'individual' ? 'btn-primary' : 'btn-outline'}`}
+                onClick={() => setForm({ ...form, type: 'individual' })}
+              >
+                Individual
+              </button>
+              <button
+                type="button"
+                disabled={isPublished}
+                className={`btn join-item flex-1 ${form.type === 'group' ? 'btn-primary' : 'btn-outline'}`}
+                onClick={() => setForm({ ...form, type: 'group' })}
+              >
+                Group
+              </button>
+            </div>
+          </div>
+
+          {form.type === 'group' && (
+            <div>
+              <label className="label" htmlFor="a-numgroups">Number of groups</label>
+              <input
+                id="a-numgroups"
+                required
+                disabled={isPublished}
+                type="number"
+                min="1"
+                value={form.numGroups}
+                onChange={update('numGroups')}
+                className="input w-full"
+              />
+            </div>
+          )}
+          {isPublished && <p className="text-xs text-base-content/60">Type and group count are locked after publishing.</p>}
+
+          <div>
+            <label className="label" htmlFor="a-file">Attachment (PDF/DOCX, optional)</label>
+            <input
+              id="a-file"
+              type="file"
+              accept=".pdf,.docx"
+              onChange={(e) => setFile(e.target.files[0])}
+              className="file-input w-full"
+            />
+          </div>
+
+          <button type="submit" disabled={loading} className="btn btn-primary self-start">
+            {loading && <span className="loading loading-spinner loading-sm" />}
+            {loading ? 'Saving...' : 'Save'}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
